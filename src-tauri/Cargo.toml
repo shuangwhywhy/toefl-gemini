@@ -1,0 +1,15 @@
+[package]
+name = "toefl-gemini"
+version = "0.1.0"
+description = "AI TOEFL Trainer desktop shell"
+authors = ["OpenAI Codex"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2.1.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.8.0", features = [] }
+
+[features]
+default = []

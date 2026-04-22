@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AI TOEFL Trainer",
+  "version": "0.1.0",
+  "identifier": "com.openai.toefl-gemini",
+  "build": {
+    "beforeDevCommand": "pnpm dev --host 127.0.0.1 --port 1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist",
+    "devUrl": "http://127.0.0.1:1420"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "AI TOEFL Trainer",
+        "width": 1440,
+        "height": 960,
+        "minWidth": 1200,
+        "minHeight": 760,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "app",
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    }
+  }
+}
