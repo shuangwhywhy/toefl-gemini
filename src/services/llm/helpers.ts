@@ -22,11 +22,11 @@ const createAbortError = () => {
   return error;
 };
 
-const bindPendingAbort = (
-  promise: Promise<unknown>,
+const bindPendingAbort = <T>(
+  promise: Promise<T>,
   scopeId: string,
   signal: AbortSignal | null
-) => {
+): Promise<T> => {
   if (!signal) {
     return promise;
   }
@@ -173,6 +173,7 @@ interface SharedRequestOptions {
   model?: string;
   businessContext?: unknown;
   isBackground?: boolean;
+  disableJsonFixer?: boolean;
 }
 
 const ensureScope = (options?: SharedRequestOptions) => {
@@ -190,10 +191,11 @@ export const fetchGeminiText = async (
   signal: AbortSignal | null = null,
   validator: ((payload: any) => void) | null = null,
   requestOptions?: SharedRequestOptions
-) => {
+): Promise<any> => {
   const { scopeId, supersedeKey, isBackground } = ensureScope(requestOptions);
   const model = requestOptions?.model ?? TEXT_MODEL;
   const primaryService = requestOptions?.service ?? 'text';
+  const disableJsonFixer = requestOptions?.disableJsonFixer ?? false;
 
   if (signal?.aborted) {
     throw createAbortError();
@@ -264,6 +266,9 @@ export const fetchGeminiText = async (
   try {
     parsedData = extractJSON(rawText);
   } catch (parseError) {
+    if (disableJsonFixer) {
+      throw parseError;
+    }
     if (!shouldAttemptJsonFixer(rawText)) {
       throw parseError;
     }
@@ -329,7 +334,7 @@ export const fetchNeuralTTS = async (
   textToSpeak: string,
   signal: AbortSignal | null = null,
   requestOptions?: SharedRequestOptions
-) => {
+): Promise<string | null> => {
   const { scopeId, supersedeKey, isBackground } = ensureScope(requestOptions);
   const cacheKey = `tts_${voiceName}_${textToSpeak}`;
   const cachedUrl = await globalAudioCache.get(cacheKey);
@@ -399,7 +404,7 @@ export const fetchConversationTTS = async (
   transcript: string,
   signal: AbortSignal | null = null,
   requestOptions?: SharedRequestOptions
-) => {
+): Promise<string | null> => {
   const { scopeId, supersedeKey, isBackground } = ensureScope(requestOptions);
   const cacheKey = `tts_conversation_${transcript.substring(0, 100)}`;
   const cachedUrl = await globalAudioCache.get(cacheKey);

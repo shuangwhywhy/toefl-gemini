@@ -20,22 +20,24 @@ import {
   Zap
 } from 'lucide-react';
 import { AITutorChat } from '../chat/AITutorChat';
+import {
+  generateInterviewSession,
+  type InterviewSessionData
+} from './interviewGeneration';
 import { buildRetryAwareMessage } from '../shared/trainingUtils';
 import { playBeep } from '../../services/audio/playback';
-import { classifyLLMFailure } from '../../services/llm/errors';
 import {
   fetchGeminiText,
   fetchNeuralTTS,
   requestTranscription
 } from '../../services/llm/helpers';
-import { runBoundedGeneration } from '../../services/llm/retry';
 import { PreloadPipeline } from '../../services/preload/orchestrator';
 import { useRequestScope } from '../../services/requestScope';
 import { DBUtils } from '../../services/storage/db';
 
 export function InterviewModule({ onBack }: { onBack: () => void }) {
   const [status, setStatus] = useState<string>('setup');
-  const [interviewData, setInterviewData] = useState<any>(null);
+  const [interviewData, setInterviewData] = useState<InterviewSessionData | null>(null);
   const [currentQIndex, setCurrentQIndex] = useState(0);
   const [showTextState, setShowTextState] = useState([false, false, false, false]);
   const [userAnswers, setUserAnswers] = useState<any[]>([]);
@@ -58,6 +60,9 @@ export function InterviewModule({ onBack }: { onBack: () => void }) {
   const audioChunksRef = useRef<Blob[]>([]);
   const timerIntervalRef = useRef<number | null>(null);
   const timerRef = useRef(0);
+  const interviewDataRef = useRef<InterviewSessionData | null>(null);
+  const interviewFlowTokenRef = useRef(0);
+  const audioWarmupTasksRef = useRef(new Map<number, Promise<string | null>>());
 
   const interviewerVoice = 'Puck';
 
@@ -83,7 +88,107 @@ export function InterviewModule({ onBack }: { onBack: () => void }) {
     };
   }, []);
 
-  const initInterviewSession = (nextInterviewData: any) => {
+  useEffect(() => {
+    interviewDataRef.current = interviewData;
+  }, [interviewData]);
+
+  const beginInterviewFlowSession = () => {
+    interviewFlowTokenRef.current += 1;
+    audioWarmupTasksRef.current.clear();
+    return interviewFlowTokenRef.current;
+  };
+
+  const isInterviewFlowCurrent = (token: number) =>
+    interviewFlowTokenRef.current === token;
+
+  const updateQuestionAudioUrl = (index: number, url: string) => {
+    setInterviewData((previous) => {
+      if (!previous) {
+        return previous;
+      }
+
+      if (previous.questions[index]?.audioUrl === url) {
+        return previous;
+      }
+
+      const nextQuestions = [...previous.questions];
+      nextQuestions[index] = { ...nextQuestions[index], audioUrl: url };
+      return { ...previous, questions: nextQuestions };
+    });
+  };
+
+  const ensureQuestionAudio = async (
+    index: number,
+    flowToken: number,
+    isBackground = false
+  ) => {
+    const activeInterview = interviewDataRef.current;
+    if (!activeInterview || !activeInterview.questions[index] || !isInterviewFlowCurrent(flowToken)) {
+      return null;
+    }
+
+    const existingUrl = activeInterview.questions[index].audioUrl;
+    if (existingUrl) {
+      return existingUrl;
+    }
+
+    const existingTask = audioWarmupTasksRef.current.get(index);
+    if (existingTask) {
+      return await existingTask;
+    }
+
+    const task = (async () => {
+      const latestInterview = interviewDataRef.current;
+      if (!latestInterview || !latestInterview.questions[index]) {
+        return null;
+      }
+
+      const nextUrl = await fetchNeuralTTS(
+        interviewerVoice,
+        latestInterview.questions[index].text,
+        null,
+        {
+          scopeId: requestScope.scopeId,
+          supersedeKey: `interview:question-tts:${index}`,
+          isBackground
+        }
+      );
+
+      if (nextUrl && isInterviewFlowCurrent(flowToken)) {
+        updateQuestionAudioUrl(index, nextUrl);
+      }
+
+      return nextUrl;
+    })();
+
+    audioWarmupTasksRef.current.set(index, task);
+    try {
+      return await task;
+    } finally {
+      if (audioWarmupTasksRef.current.get(index) === task) {
+        audioWarmupTasksRef.current.delete(index);
+      }
+    }
+  };
+
+  const warmUpcomingQuestionAudio = async (startIndex: number, flowToken: number) => {
+    const activeInterview = interviewDataRef.current;
+    if (!activeInterview) {
+      return;
+    }
+
+    for (let index = startIndex; index < activeInterview.questions.length; index += 1) {
+      if (!isInterviewFlowCurrent(flowToken)) {
+        return;
+      }
+
+      await ensureQuestionAudio(index, flowToken, true);
+    }
+  };
+
+  const initInterviewSession = (nextInterviewData: InterviewSessionData) => {
+    beginInterviewFlowSession();
+    interviewDataRef.current = nextInterviewData;
     setInterviewData(nextInterviewData);
     setUserAnswers([]);
     setCurrentQIndex(0);
@@ -109,45 +214,12 @@ export function InterviewModule({ onBack }: { onBack: () => void }) {
 
     setStatus('generating');
     try {
-      const { value } = await runBoundedGeneration({
-        classify: classifyLLMFailure,
-        maxRetries: 2,
-        delayMs: 1000,
-        action: async () => {
-          const prompt = `Generate a 4-question TOEFL mock interview on a random specific topic. 
-      Progression: Q1(Personal experience), Q2(Opinion/Choice), Q3(Broader social/campus impact), Q4(Complex trade-offs/Future prediction). 
-      Return JSON: {"topic": "...", "questions": ["...", "...", "...", "..."]}`;
-
-          const schema = {
-            type: 'OBJECT',
-            properties: {
-              topic: { type: 'STRING' },
-              questions: { type: 'ARRAY', items: { type: 'STRING' } }
-            },
-            required: ['topic', 'questions']
-          };
-
-          const data = await fetchGeminiText(prompt, 0.9, 800, schema, null, null, {
-            scopeId: requestScope.scopeId,
-            supersedeKey: 'interview:generate'
-          });
-
-          const questionsWithAudio = data.questions.map((question: string) => ({
-            text: question,
-            audioUrl: null
-          }));
-          questionsWithAudio[0].audioUrl = await fetchNeuralTTS(
-            interviewerVoice,
-            questionsWithAudio[0].text,
-            null,
-            {
-              scopeId: requestScope.scopeId,
-              supersedeKey: 'interview:first-tts'
-            }
-          );
-
-          return { topic: data.topic, questions: questionsWithAudio };
-        }
+      const value = await generateInterviewSession({
+        voice: interviewerVoice,
+        scopeId: requestScope.scopeId,
+        supersedeKey: 'interview:generate',
+        firstTtsSupersedeKey: 'interview:first-tts',
+        mode: 'manual'
       });
 
       if (!requestScope.isSessionCurrent(session)) {
@@ -171,21 +243,18 @@ export function InterviewModule({ onBack }: { onBack: () => void }) {
 
   const startInterview = () => {
     setStatus('interviewing');
-    void playQuestionAudio(0);
+    void playQuestionAudio(0, interviewFlowTokenRef.current);
   };
 
-  const playQuestionAudio = async (index: number) => {
-    let url = interviewData.questions[index].audioUrl;
-    if (!url) {
-      url = await fetchNeuralTTS(interviewerVoice, interviewData.questions[index].text, null, {
-        scopeId: requestScope.scopeId,
-        supersedeKey: `interview:question-tts:${index}`
-      });
-      setInterviewData((previous: any) => {
-        const nextQuestions = [...previous.questions];
-        nextQuestions[index] = { ...nextQuestions[index], audioUrl: url };
-        return { ...previous, questions: nextQuestions };
-      });
+  const playQuestionAudio = async (index: number, flowToken: number) => {
+    const activeInterview = interviewDataRef.current;
+    if (!activeInterview || !activeInterview.questions[index]) {
+      return;
+    }
+
+    const url = await ensureQuestionAudio(index, flowToken, false);
+    if (!isInterviewFlowCurrent(flowToken)) {
+      return;
     }
 
     if (audioRef.current && url) {
@@ -194,11 +263,13 @@ export function InterviewModule({ onBack }: { onBack: () => void }) {
         await audioRef.current.play();
       } catch (error) {
         console.warn('Audio element blocked, fallback to SpeechSynthesis');
-        playSimpleSpeech(interviewData.questions[index].text, handleInterviewerAudioEnded);
+        playSimpleSpeech(activeInterview.questions[index].text, handleInterviewerAudioEnded);
       }
     } else {
-      playSimpleSpeech(interviewData.questions[index].text, handleInterviewerAudioEnded);
+      playSimpleSpeech(activeInterview.questions[index].text, handleInterviewerAudioEnded);
     }
+
+    void warmUpcomingQuestionAudio(index + 1, flowToken);
   };
 
   const handleInterviewerAudioEnded = async () => {
@@ -214,6 +285,7 @@ export function InterviewModule({ onBack }: { onBack: () => void }) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       await playBeep(800, 0.1);
+      void warmUpcomingQuestionAudio(currentQIndex + 1, interviewFlowTokenRef.current);
 
       mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
@@ -263,7 +335,7 @@ export function InterviewModule({ onBack }: { onBack: () => void }) {
           const nextIndex = currentQIndex + 1;
           setCurrentQIndex(nextIndex);
           window.setTimeout(() => {
-            void playQuestionAudio(nextIndex);
+            void playQuestionAudio(nextIndex, interviewFlowTokenRef.current);
           }, 1000);
         } else {
           void evaluateEntireInterview();
@@ -568,7 +640,7 @@ export function InterviewModule({ onBack }: { onBack: () => void }) {
               </div>
               <h2 className="text-2xl font-bold text-slate-800 mb-4">准备好接受面试了吗？</h2>
               <p className="text-slate-500 mb-8 max-w-lg">
-                系统将随机生成一个常考话题，并由 AI 考官对您进行 4
+                系统将随机生成一个符合新版托福 interview 范围的具体话题，并由 AI 考官对您进行 4
                 轮连珠炮式的语音提问。请保证每一题的回答时长控制在合理范围（总目标
                 ~180秒）。
               </p>

@@ -4,6 +4,10 @@ import {
   fetchNeuralTTS,
   processDictationText
 } from '../../services/llm/helpers';
+import {
+  generateInterviewSession,
+  INTERVIEW_PROMPT_VERSION
+} from '../interview/interviewGeneration';
 import { PreloadPipeline } from '../../services/preload/orchestrator';
 import {
   getDifficultyDescription,
@@ -112,7 +116,10 @@ export const queueShadowPreload = (
 };
 
 export const queueInterviewPreload = (voice: string) => {
-  const fingerprint = JSON.stringify({ voice });
+  const fingerprint = JSON.stringify({
+    voice,
+    promptVersion: INTERVIEW_PROMPT_VERSION
+  });
   PreloadPipeline.enqueue('interview_preload', fingerprint, async (signal) => {
     const scopeId = 'preload:interview';
     if (PreloadPipeline.cache.interview) {
@@ -120,51 +127,21 @@ export const queueInterviewPreload = (voice: string) => {
     }
 
     try {
-      const prompt = `Generate a 4-question TOEFL mock interview on a random specific topic. 
-      Progression: Q1(Personal experience), Q2(Opinion/Choice), Q3(Broader social/campus impact), Q4(Complex trade-offs/Future prediction). 
-      Return JSON: {"topic": "...", "questions": ["...", "...", "...", "..."]}`;
-
-      const schema = {
-        type: 'OBJECT',
-        properties: {
-          topic: { type: 'STRING' },
-          questions: { type: 'ARRAY', items: { type: 'STRING' } }
-        },
-        required: ['topic', 'questions']
-      };
-
-      const data = await fetchGeminiText(prompt, 0.9, 800, schema, signal, null, {
-        scopeId,
-        supersedeKey: 'interview:paper',
-        isBackground: true
-      });
-      if (!data || !Array.isArray(data.questions) || data.questions.length === 0) {
-        throw new Error('Invalid output format');
-      }
-
-      const questionsWithAudio = data.questions.map((question: string) => ({
-        text: question,
-        audioUrl: null
-      }));
-      questionsWithAudio[0].audioUrl = await fetchNeuralTTS(
+      const data = await generateInterviewSession({
         voice,
-        questionsWithAudio[0].text,
+        scopeId,
         signal,
-        {
-          scopeId,
-          supersedeKey: 'interview:first-tts',
-          isBackground: true
-        }
-      );
+        supersedeKey: 'interview:paper',
+        firstTtsSupersedeKey: 'interview:first-tts',
+        isBackground: true,
+        mode: 'preload'
+      });
 
       if (signal.aborted) {
         throw new DOMException('Aborted', 'AbortError');
       }
 
-      PreloadPipeline.cache.interview = {
-        topic: data.topic,
-        questions: questionsWithAudio
-      };
+      PreloadPipeline.cache.interview = data;
       window.dispatchEvent(
         new CustomEvent('preload-ready', { detail: { type: 'interview' } })
       );
