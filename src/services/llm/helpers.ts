@@ -8,7 +8,8 @@ import {
 } from './config';
 import {
   JSONExtractionError,
-  LLMFormatError
+  LLMFormatError,
+  classifyLLMFailure
 } from './errors';
 import {
   createBusinessKey,
@@ -46,6 +47,34 @@ const bindPendingAbort = <T>(
 const parseGenerateContentText = (response: any) =>
   response?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
 
+const parseOpenAIChatText = (response: any) => {
+  const message = response?.choices?.[0]?.message;
+  if (message?.refusal) {
+    throw { status: 400, message: String(message.refusal) };
+  }
+
+  const content = message?.content;
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === 'string') {
+          return part;
+        }
+        if (part?.type === 'text' && typeof part.text === 'string') {
+          return part.text;
+        }
+        return '';
+      })
+      .join('');
+  }
+
+  return '';
+};
+
 const extractInlineData = (response: any) =>
   response?.candidates?.[0]?.content?.parts?.[0]?.inlineData ?? null;
 
@@ -53,6 +82,210 @@ const FAILURE_RESPONSE_PATTERN =
   /\b(error|failed|failure|quota|rate limit|too many|unavailable|permission|unauthorized|forbidden|not found|policy|safety|blocked|refused|denied|invalid api|resource exhausted)\b/i;
 const JSONISH_TEXT_PATTERN =
   /```|[{[]|"\s*[\w-]+"\s*:|^\s*[\w-]+\s*:/m;
+
+const OPENAI_CHAT_COMPLETIONS_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENAI_REASONING_MODELS_PREFIX = /^gpt-5/i;
+
+const GEMINI_TO_JSON_SCHEMA_TYPE: Record<string, string> = {
+  OBJECT: 'object',
+  ARRAY: 'array',
+  STRING: 'string',
+  INTEGER: 'integer',
+  NUMBER: 'number',
+  BOOLEAN: 'boolean',
+  NULL: 'null'
+};
+
+const normalizeSchemaForOpenAI = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeSchemaForOpenAI(item));
+  }
+
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const input = value as Record<string, unknown>;
+  const normalized: Record<string, unknown> = {};
+
+  for (const [key, entryValue] of Object.entries(input)) {
+    if (key === 'type' && typeof entryValue === 'string') {
+      normalized[key] = GEMINI_TO_JSON_SCHEMA_TYPE[entryValue] ?? entryValue.toLowerCase();
+      continue;
+    }
+
+    normalized[key] = normalizeSchemaForOpenAI(entryValue);
+  }
+
+  return normalized;
+};
+
+const partsToPlainText = (
+  promptOrParts: string | Array<Record<string, unknown>>
+): string | null => {
+  if (typeof promptOrParts === 'string') {
+    return promptOrParts;
+  }
+
+  const textParts: string[] = [];
+  for (const part of promptOrParts) {
+    if (typeof part?.text !== 'string') {
+      return null;
+    }
+    textParts.push(part.text);
+  }
+
+  return textParts.join('\n\n');
+};
+
+const buildOpenAIDeveloperInstruction = (expectJson: boolean) =>
+  expectJson
+    ? 'You are a rigid backend API endpoint. Output only the requested JSON content.'
+    : 'You are a helpful assistant.';
+
+const buildOpenAIJsonResponseFormat = (schema: Record<string, unknown> | null) =>
+  schema
+    ? {
+        type: 'json_schema',
+        json_schema: {
+          name: 'structured_response',
+          strict: true,
+          schema: normalizeSchemaForOpenAI(schema)
+        }
+      }
+    : {
+        type: 'json_object'
+      };
+
+const requestOpenAIChatCompletion = async ({
+  messages,
+  temperature,
+  maxOutputTokens,
+  schema,
+  signal
+}: {
+  messages: Array<{ role: 'developer' | 'user' | 'assistant'; content: string }>;
+  temperature: number;
+  maxOutputTokens: number;
+  schema: Record<string, unknown> | null;
+  signal: AbortSignal | null;
+}) => {
+  const apiKey = import.meta.env.VITE_OPENAI_API_KEY?.trim();
+  const model = import.meta.env.VITE_OPENAI_TEXT_MODEL?.trim() || 'gpt-5-mini';
+  if (!apiKey) {
+    throw new Error('Missing VITE_OPENAI_API_KEY');
+  }
+
+  const response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`
+    },
+    signal: signal ?? undefined,
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature,
+      n: 1,
+      max_completion_tokens: maxOutputTokens,
+      ...(schema ? { response_format: buildOpenAIJsonResponseFormat(schema) } : {}),
+      ...(OPENAI_REASONING_MODELS_PREFIX.test(model)
+        ? { reasoning_effort: 'minimal' }
+        : {})
+    })
+  });
+
+  if (!response.ok) {
+    let message = response.statusText || 'OpenAI request failed';
+    try {
+      const payload = await response.json();
+      message =
+        payload?.error?.message ??
+        payload?.message ??
+        message;
+    } catch {
+      // Keep the HTTP status text fallback.
+    }
+
+    throw {
+      status: response.status,
+      message
+    };
+  }
+
+  return await response.json();
+};
+
+const buildOpenAIChatMessages = ({
+  promptText,
+  expectJson
+}: {
+  promptText: string;
+  expectJson: boolean;
+}) => [
+  {
+    role: 'developer' as const,
+    content: buildOpenAIDeveloperInstruction(expectJson)
+  },
+  {
+    role: 'user' as const,
+    content: promptText
+  }
+];
+
+const canUseOpenAITextFallback = (
+  promptOrParts: string | Array<Record<string, unknown>>,
+  service?: string
+) => {
+  if (!import.meta.env.VITE_OPENAI_API_KEY?.trim()) {
+    return false;
+  }
+
+  if (service === 'transcription') {
+    return false;
+  }
+
+  return partsToPlainText(promptOrParts) !== null;
+};
+
+const toOpenAIChatMessages = (
+  contents: unknown,
+  systemInstruction?: unknown
+): Array<{ role: 'developer' | 'user' | 'assistant'; content: string }> | null => {
+  const messages: Array<{ role: 'developer' | 'user' | 'assistant'; content: string }> = [];
+  const systemTextParts =
+    (systemInstruction as { parts?: Array<Record<string, unknown>> } | undefined)?.parts ?? [];
+  const systemText = systemTextParts
+    .map((part) => (typeof part?.text === 'string' ? part.text : null))
+    .filter((value): value is string => Boolean(value))
+    .join('\n\n')
+    .trim();
+
+  if (systemInstruction && !systemText) {
+    return null;
+  }
+
+  if (systemText) {
+    messages.push({ role: 'developer', content: systemText });
+  }
+
+  if (!Array.isArray(contents)) {
+    return null;
+  }
+
+  for (const entry of contents as Array<Record<string, unknown>>) {
+    const role = entry.role === 'model' ? 'assistant' : 'user';
+    const parts = Array.isArray(entry.parts) ? entry.parts : [];
+    const text = partsToPlainText(parts as Array<Record<string, unknown>>);
+    if (text === null) {
+      return null;
+    }
+    messages.push({ role, content: text });
+  }
+
+  return messages;
+};
 
 export const shouldAttemptJsonFixer = (rawText: string) => {
   const text = rawText.trim();
@@ -196,6 +429,12 @@ export const fetchGeminiText = async (
   const model = requestOptions?.model ?? TEXT_MODEL;
   const primaryService = requestOptions?.service ?? 'text';
   const disableJsonFixer = requestOptions?.disableJsonFixer ?? false;
+  const textPromptForOpenAI = partsToPlainText(promptOrParts);
+  const openAIFallbackEnabled = canUseOpenAITextFallback(
+    promptOrParts,
+    requestOptions?.service
+  );
+  let usedOpenAIFallback = false;
 
   if (signal?.aborted) {
     throw createAbortError();
@@ -259,57 +498,101 @@ export const fetchGeminiText = async (
     return await bindPendingAbort(promise, scopeId, signal);
   };
 
-  const response = await runAttempt(false);
-  const rawText = parseGenerateContentText(response);
+  let rawText = '';
+  try {
+    const response = await runAttempt(false);
+    rawText = parseGenerateContentText(response);
+  } catch (error) {
+    if (!openAIFallbackEnabled || !textPromptForOpenAI) {
+      throw error;
+    }
+
+    const openAIResponse = await requestOpenAIChatCompletion({
+      messages: buildOpenAIChatMessages({
+        promptText: textPromptForOpenAI,
+        expectJson: true
+      }),
+      temperature,
+      maxOutputTokens,
+      schema,
+      signal
+    });
+    rawText = parseOpenAIChatText(openAIResponse);
+    usedOpenAIFallback = true;
+  }
 
   let parsedData: any;
   try {
     parsedData = extractJSON(rawText);
   } catch (parseError) {
-    if (disableJsonFixer) {
-      throw parseError;
-    }
-    if (!shouldAttemptJsonFixer(rawText)) {
-      throw parseError;
-    }
-    console.warn('High-temp JSON parsing failed, triggering zero-temp fixer...');
-    const fixerPrompt =
-      'Convert the following raw text into STRICT valid JSON. ' +
-      'Do not change the core meaning, just fix formatting issues.\n\n' +
-      `RAW TEXT:\n${rawText}`;
-    const fixerPromise = getLLMClient().request({
-      route: {
-        platform: GEMINI_PLATFORM,
-        service: 'evaluation',
-        model
-      },
-      scopeId,
-      supersedeKey,
-      isBackground,
-      businessKey: createBusinessKey(`json-fixer:evaluation:${model}`, {
-        rawText,
-        schema,
-        maxOutputTokens
-      }),
-      payload: {
-        kind: 'generate-content',
-        params: {
-          model,
-          contents: [{ parts: [{ text: fixerPrompt }] }],
-          config: {
-            temperature: 0,
-            maxOutputTokens,
-            responseMimeType: 'application/json',
-            ...(schema ? { responseSchema: schema } : {})
-          }
+    if (!usedOpenAIFallback && openAIFallbackEnabled && textPromptForOpenAI) {
+      try {
+        const openAIResponse = await requestOpenAIChatCompletion({
+          messages: buildOpenAIChatMessages({
+            promptText: textPromptForOpenAI,
+            expectJson: true
+          }),
+          temperature,
+          maxOutputTokens,
+          schema,
+          signal
+        });
+        parsedData = extractJSON(parseOpenAIChatText(openAIResponse));
+        rawText = '';
+        usedOpenAIFallback = true;
+      } catch (openAIError) {
+        if (disableJsonFixer) {
+          throw openAIError;
         }
-      },
-      parser: async (result) => result
-    });
-    const fixerResponse = await bindPendingAbort(fixerPromise, scopeId, signal);
+      }
+    }
 
-    const fixedText = parseGenerateContentText(fixerResponse);
-    parsedData = extractJSON(fixedText);
+    if (parsedData) {
+      // Parsed successfully from OpenAI fallback.
+    } else if (disableJsonFixer) {
+      throw parseError;
+    } else if (!shouldAttemptJsonFixer(rawText)) {
+      throw parseError;
+    } else {
+      console.warn('High-temp JSON parsing failed, triggering zero-temp fixer...');
+      const fixerPrompt =
+        'Convert the following raw text into STRICT valid JSON. ' +
+        'Do not change the core meaning, just fix formatting issues.\n\n' +
+        `RAW TEXT:\n${rawText}`;
+      const fixerPromise = getLLMClient().request({
+        route: {
+          platform: GEMINI_PLATFORM,
+          service: 'evaluation',
+          model
+        },
+        scopeId,
+        supersedeKey,
+        isBackground,
+        businessKey: createBusinessKey(`json-fixer:evaluation:${model}`, {
+          rawText,
+          schema,
+          maxOutputTokens
+        }),
+        payload: {
+          kind: 'generate-content',
+          params: {
+            model,
+            contents: [{ parts: [{ text: fixerPrompt }] }],
+            config: {
+              temperature: 0,
+              maxOutputTokens,
+              responseMimeType: 'application/json',
+              ...(schema ? { responseSchema: schema } : {})
+            }
+          }
+        },
+        parser: async (result) => result
+      });
+      const fixerResponse = await bindPendingAbort(fixerPromise, scopeId, signal);
+
+      const fixedText = parseGenerateContentText(fixerResponse);
+      parsedData = extractJSON(fixedText);
+    }
   }
 
   if (validator) {
@@ -491,35 +774,52 @@ export const requestChatCompletion = async ({
   scopeId: string;
   supersedeKey?: string;
 }) => {
-  return await getLLMClient().request<string>({
-    route: {
-      platform: GEMINI_PLATFORM,
-      service: 'chat',
-      model: TEXT_MODEL
-    },
-    scopeId,
-    supersedeKey,
-    businessKey: createBusinessKey(`chat:${TEXT_MODEL}`, {
-      contents,
-      systemInstruction,
-      temperature,
-      maxOutputTokens
-    }),
-    payload: {
-      kind: 'generate-content',
-      params: {
-        model: TEXT_MODEL,
+  try {
+    return await getLLMClient().request<string>({
+      route: {
+        platform: GEMINI_PLATFORM,
+        service: 'chat',
+        model: TEXT_MODEL
+      },
+      scopeId,
+      supersedeKey,
+      businessKey: createBusinessKey(`chat:${TEXT_MODEL}`, {
         contents,
-        config: {
-          temperature,
-          maxOutputTokens,
-          ...(systemInstruction ? { systemInstruction } : {})
+        systemInstruction,
+        temperature,
+        maxOutputTokens
+      }),
+      payload: {
+        kind: 'generate-content',
+        params: {
+          model: TEXT_MODEL,
+          contents,
+          config: {
+            temperature,
+            maxOutputTokens,
+            ...(systemInstruction ? { systemInstruction } : {})
+          }
         }
-      }
-    },
-    parser: async (response) =>
-      parseGenerateContentText(response) || '抱歉，我没太明白您的意思。'
-  });
+      },
+      parser: async (response) =>
+        parseGenerateContentText(response) || '抱歉，我没太明白您的意思。'
+    });
+  } catch (error) {
+    const failure = classifyLLMFailure(error);
+    const messages = toOpenAIChatMessages(contents, systemInstruction);
+    if (failure.kind === 'cancelled' || !messages) {
+      throw error;
+    }
+
+    const openAIResponse = await requestOpenAIChatCompletion({
+      messages,
+      temperature,
+      maxOutputTokens,
+      schema: null,
+      signal: null
+    });
+    return parseOpenAIChatText(openAIResponse) || '抱歉，我没太明白您的意思。';
+  }
 };
 
 const blobToBase64 = async (blob: Blob) =>

@@ -14,8 +14,7 @@ import {
   RefreshCw,
   ShieldCheck,
   UserCheck,
-  Volume2,
-  XCircle
+  Volume2
 } from 'lucide-react';
 
 export type PreloadStatus = {
@@ -420,20 +419,6 @@ export function SpeakingMenuModule({
           onClick={() => onNavigate('shadow')}
           className="group bg-white p-8 rounded-3xl shadow-sm border border-slate-200 hover:shadow-xl hover:border-indigo-300 transition-all cursor-pointer transform hover:-translate-y-1 relative overflow-hidden"
         >
-          {preloadStatus.shadow ? (
-            <span className="absolute top-5 right-5 text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full flex items-center">
-              ✨ 资源已就绪
-            </span>
-          ) : preloadStatus.shadowError ? (
-            <span className="absolute top-5 right-5 text-[10px] font-bold text-rose-500 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-full flex items-center">
-              <XCircle className="w-3 h-3 mr-1" /> 预载失败，可随时点击
-            </span>
-          ) : (
-            <span className="absolute top-5 right-5 text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full flex items-center">
-              <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> 预载中...
-            </span>
-          )}
-
           <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-bl-full -z-10 group-hover:scale-110 transition-transform"></div>
           <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center mb-6">
             <Headphones className="w-8 h-8" />
@@ -454,20 +439,6 @@ export function SpeakingMenuModule({
           onClick={() => onNavigate('interview')}
           className="group bg-white p-8 rounded-3xl shadow-sm border border-slate-200 hover:shadow-xl hover:border-blue-300 transition-all cursor-pointer transform hover:-translate-y-1 relative overflow-hidden"
         >
-          {preloadStatus.interview ? (
-            <span className="absolute top-5 right-5 text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-full flex items-center">
-              ✨ 考卷已就绪
-            </span>
-          ) : preloadStatus.interviewError ? (
-            <span className="absolute top-5 right-5 text-[10px] font-bold text-rose-500 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-full flex items-center">
-              <XCircle className="w-3 h-3 mr-1" /> 预载失败，可随时点击
-            </span>
-          ) : (
-            <span className="absolute top-5 right-5 text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full flex items-center">
-              <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> 预载中...
-            </span>
-          )}
-
           <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50 rounded-bl-full -z-10 group-hover:scale-110 transition-transform"></div>
           <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center mb-6">
             <UserCheck className="w-8 h-8" />
@@ -519,20 +490,6 @@ export function ListeningMenuModule({
           onClick={() => onNavigate('listening_practice')}
           className="group bg-white p-8 rounded-3xl shadow-sm border border-slate-200 hover:shadow-xl hover:border-emerald-300 transition-all cursor-pointer transform hover:-translate-y-1 relative overflow-hidden"
         >
-          {preloadStatus.listening ? (
-            <span className="absolute top-5 right-5 text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full flex items-center">
-              ✨ 逻辑快记已就绪
-            </span>
-          ) : preloadStatus.listeningError ? (
-            <span className="absolute top-5 right-5 text-[10px] font-bold text-rose-500 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-full flex items-center">
-              <XCircle className="w-3 h-3 mr-1" /> 预载失败
-            </span>
-          ) : (
-            <span className="absolute top-5 right-5 text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full flex items-center">
-              <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> 预载中...
-            </span>
-          )}
-
           <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-50 rounded-bl-full -z-10 group-hover:scale-110 transition-transform"></div>
           <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mb-6">
             <Volume2 className="w-8 h-8" />
@@ -553,20 +510,6 @@ export function ListeningMenuModule({
           onClick={() => onNavigate('listening_dictation')}
           className="group bg-white p-8 rounded-3xl shadow-sm border border-slate-200 hover:shadow-xl hover:border-indigo-300 transition-all cursor-pointer transform hover:-translate-y-1 relative overflow-hidden"
         >
-          {preloadStatus.dictation ? (
-            <span className="absolute top-5 right-5 text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-full flex items-center">
-              ✨ 听写已就绪
-            </span>
-          ) : preloadStatus.dictationError ? (
-            <span className="absolute top-5 right-5 text-[10px] font-bold text-rose-500 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-full flex items-center">
-              <XCircle className="w-3 h-3 mr-1" /> 预载失败
-            </span>
-          ) : (
-            <span className="absolute top-5 right-5 text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full flex items-center">
-              <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> 预载中...
-            </span>
-          )}
-
           <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-bl-full -z-10 group-hover:scale-110 transition-transform"></div>
           <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center mb-6">
             <PencilLine className="w-8 h-8" />
