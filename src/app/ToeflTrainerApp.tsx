@@ -111,18 +111,30 @@ export default function ToeflTrainerApp() {
     }
 
     const timer = window.setTimeout(() => {
-      try {
-        queueShadowPreload(3, 'general daily English', 5, DEFAULT_SHADOW_VOICE);
-      } catch (error) {}
-      try {
-        queueInterviewPreload('Puck');
-      } catch (error) {}
-      try {
-        queueListeningPreload();
-      } catch (error) {}
-      try {
-        queueDictationPreload();
-      } catch (error) {}
+      // Staggered launch to prevent concurrent "Preload Storm"
+      setTimeout(() => {
+        try {
+          queueShadowPreload(3, 'general daily English', 5, DEFAULT_SHADOW_VOICE);
+        } catch (error) {}
+      }, 0);
+
+      setTimeout(() => {
+        try {
+          queueInterviewPreload('Puck');
+        } catch (error) {}
+      }, 1000);
+
+      setTimeout(() => {
+        try {
+          queueListeningPreload();
+        } catch (error) {}
+      }, 2000);
+
+      setTimeout(() => {
+        try {
+          queueDictationPreload();
+        } catch (error) {}
+      }, 3000);
     }, 800);
 
     return () => clearTimeout(timer);

@@ -52,6 +52,7 @@ export interface LLMRequest<T> {
   payload: LLMPayload;
   parser: (raw: unknown) => Promise<T> | T;
   meta?: LLMRequestMeta;
+  isBackground?: boolean;
 }
 
 export interface PersistedRateState {

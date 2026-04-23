@@ -9,37 +9,34 @@ export const TRANSCRIBE_MODEL =
   import.meta.env.VITE_GEMINI_TRANSCRIBE_MODEL ?? TEXT_MODEL;
 
 const basePolicy: RoutePolicy = {
-  maxConcurrency: 3,
+  maxConcurrency: 2,
   maxRetries: 2,
-  minBusyRetryDelayMs: 2000,
+  minBusyRetryDelayMs: 10000,
   rules: [
-    { id: 'platform.started.1m', mode: 'started_in_window', windowMs: 60_000, max: 20 },
-    { id: 'platform.started.5m', mode: 'started_in_window', windowMs: 300_000, max: 60 },
-    { id: 'platform.started.1d', mode: 'started_in_window', windowMs: 86_400_000, max: 1000 }
+    { id: 'platform.started.1m', mode: 'started_in_window', windowMs: 60_000, max: 15 },
+    { id: 'platform.started.1d', mode: 'started_in_window', windowMs: 86_400_000, max: 500 }
   ]
 };
 
 const servicePolicies: Record<string, Partial<RoutePolicy>> = {
-  text: { maxConcurrency: 3 },
-  evaluation: { maxConcurrency: 2 },
-  chat: { maxConcurrency: 2 },
-  'tts-single': {
+  text: { maxConcurrency: 2 },
+  evaluation: { maxConcurrency: 1 },
+  chat: { maxConcurrency: 1 },
+  'tts-shared': {
     maxConcurrency: 2,
     rules: [
-      { id: 'tts.single.started.1m', mode: 'started_in_window', windowMs: 60_000, max: 8 },
-      { id: 'tts.single.started.5m', mode: 'started_in_window', windowMs: 300_000, max: 24 },
-      { id: 'tts.single.started.1d', mode: 'started_in_window', windowMs: 86_400_000, max: 240 },
-      { id: 'tts.single.active', mode: 'active_requests', max: 2 }
+      { id: 'tts.shared.started.1m', mode: 'started_in_window', windowMs: 60_000, max: 15 },
+      { id: 'tts.shared.started.1d', mode: 'started_in_window', windowMs: 86_400_000, max: 200 },
+      { id: 'tts.shared.active', mode: 'active_requests', max: 1 }
     ]
+  },
+  'tts-single': {
+    maxConcurrency: 2,
+    rules: [{ id: 'tts.shared.delegated', mode: 'active_requests', max: 2 }]
   },
   'tts-multi': {
     maxConcurrency: 1,
-    rules: [
-      { id: 'tts.multi.started.1m', mode: 'started_in_window', windowMs: 60_000, max: 4 },
-      { id: 'tts.multi.started.5m', mode: 'started_in_window', windowMs: 300_000, max: 12 },
-      { id: 'tts.multi.started.1d', mode: 'started_in_window', windowMs: 86_400_000, max: 120 },
-      { id: 'tts.multi.active', mode: 'active_requests', max: 1 }
-    ]
+    rules: [{ id: 'tts.shared.delegated', mode: 'active_requests', max: 2 }]
   },
   transcription: {
     maxConcurrency: 1,
@@ -57,13 +54,11 @@ const modelPoliciesByService: Record<string, Record<string, Partial<RoutePolicy>
   evaluation: {},
   chat: {},
   transcription: {},
-  'tts-single': {
-    [TTS_MODEL]: {}
-  },
-  'tts-multi': {
+  'tts-shared': {
     [TTS_MODEL]: {}
   }
 };
+
 
 export const resolveRoutePolicy = (route: LLMRouteKey): RoutePolicy => {
   const serviceOverride = servicePolicies[route.service] ?? {};

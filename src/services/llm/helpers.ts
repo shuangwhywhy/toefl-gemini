@@ -172,6 +172,7 @@ interface SharedRequestOptions {
   service?: string;
   model?: string;
   businessContext?: unknown;
+  isBackground?: boolean;
 }
 
 const ensureScope = (options?: SharedRequestOptions) => {
@@ -190,7 +191,7 @@ export const fetchGeminiText = async (
   validator: ((payload: any) => void) | null = null,
   requestOptions?: SharedRequestOptions
 ) => {
-  const { scopeId, supersedeKey } = ensureScope(requestOptions);
+  const { scopeId, supersedeKey, isBackground } = ensureScope(requestOptions);
   const model = requestOptions?.model ?? TEXT_MODEL;
   const primaryService = requestOptions?.service ?? 'text';
 
@@ -234,6 +235,7 @@ export const fetchGeminiText = async (
       },
       scopeId,
       supersedeKey,
+      isBackground,
       businessKey,
       payload: {
         kind: 'generate-content',
@@ -278,6 +280,7 @@ export const fetchGeminiText = async (
       },
       scopeId,
       supersedeKey,
+      isBackground,
       businessKey: createBusinessKey(`json-fixer:evaluation:${model}`, {
         rawText,
         schema,
@@ -327,10 +330,11 @@ export const fetchNeuralTTS = async (
   signal: AbortSignal | null = null,
   requestOptions?: SharedRequestOptions
 ) => {
-  const { scopeId, supersedeKey } = ensureScope(requestOptions);
+  const { scopeId, supersedeKey, isBackground } = ensureScope(requestOptions);
   const cacheKey = `tts_${voiceName}_${textToSpeak}`;
-  if (globalAudioCache.has(cacheKey)) {
-    return globalAudioCache.get(cacheKey) ?? null;
+  const cachedUrl = await globalAudioCache.get(cacheKey);
+  if (cachedUrl) {
+    return cachedUrl;
   }
 
   const promise = getLLMClient().request({
@@ -341,6 +345,7 @@ export const fetchNeuralTTS = async (
     },
     scopeId,
     supersedeKey,
+    isBackground,
     businessKey: createBusinessKey(`tts-single:${TTS_MODEL}`, {
       voiceName,
       textToSpeak,
@@ -366,12 +371,23 @@ export const fetchNeuralTTS = async (
       if (!inlineData) {
         return null;
       }
+      const binaryString = atob(inlineData.data);
+      const buffer = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i += 1) {
+        buffer[i] = binaryString.charCodeAt(i);
+      }
       const mimeMatch = String(inlineData.mimeType ?? '').match(/rate=(\d+)/);
-      const url = pcmToWavUrl(
-        inlineData.data,
-        mimeMatch ? Number.parseInt(mimeMatch[1], 10) : 24_000
-      );
-      globalAudioCache.set(cacheKey, url);
+      const sampleRate = mimeMatch ? Number.parseInt(mimeMatch[1], 10) : 24_000;
+      
+      // Re-use existing pcmToWavUrl logic but we need the Blob to store it
+      // For now, let's just use a simplified version to get the Blob
+      const url = pcmToWavUrl(inlineData.data, sampleRate);
+      
+      // Try to get the blob from the URL if possible, or just re-convert
+      // To be safe and clean, we'll just fetch the blob from the object URL
+      const blob = await fetch(url).then(r => r.blob());
+      await globalAudioCache.set(cacheKey, blob);
+      
       return url;
     }
   });
@@ -384,10 +400,11 @@ export const fetchConversationTTS = async (
   signal: AbortSignal | null = null,
   requestOptions?: SharedRequestOptions
 ) => {
-  const { scopeId, supersedeKey } = ensureScope(requestOptions);
-  const cacheKey = `tts_conversation_${transcript.substring(0, 50)}`;
-  if (globalAudioCache.has(cacheKey)) {
-    return globalAudioCache.get(cacheKey) ?? null;
+  const { scopeId, supersedeKey, isBackground } = ensureScope(requestOptions);
+  const cacheKey = `tts_conversation_${transcript.substring(0, 100)}`;
+  const cachedUrl = await globalAudioCache.get(cacheKey);
+  if (cachedUrl) {
+    return cachedUrl;
   }
 
   const promise = getLLMClient().request({
@@ -398,6 +415,7 @@ export const fetchConversationTTS = async (
     },
     scopeId,
     supersedeKey,
+    isBackground,
     businessKey: createBusinessKey(`tts-multi:${TTS_MODEL}`, {
       transcript,
       responseModalities: ['AUDIO'],
@@ -440,11 +458,12 @@ export const fetchConversationTTS = async (
         throw new Error('Empty audio data returned');
       }
       const mimeMatch = String(inlineData.mimeType ?? '').match(/rate=(\d+)/);
-      const url = pcmToWavUrl(
-        inlineData.data,
-        mimeMatch ? Number.parseInt(mimeMatch[1], 10) : 24_000
-      );
-      globalAudioCache.set(cacheKey, url);
+      const sampleRate = mimeMatch ? Number.parseInt(mimeMatch[1], 10) : 24_000;
+      const url = pcmToWavUrl(inlineData.data, sampleRate);
+      
+      const blob = await fetch(url).then(r => r.blob());
+      await globalAudioCache.set(cacheKey, blob);
+      
       return url;
     }
   });

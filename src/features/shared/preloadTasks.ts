@@ -81,12 +81,14 @@ export const queueShadowPreload = (
 
       const data = await fetchGeminiText(prompt, 0.7, 400, schema, signal, validator, {
         scopeId,
-        supersedeKey: 'shadow:sentence'
+        supersedeKey: 'shadow:sentence',
+        isBackground: true
       });
       const sentence = data.sentence.trim();
       const audioUrl = await fetchNeuralTTS(voice, sentence, signal, {
         scopeId,
-        supersedeKey: 'shadow:tts'
+        supersedeKey: 'shadow:tts',
+        isBackground: true
       });
 
       if (signal.aborted) {
@@ -133,7 +135,8 @@ export const queueInterviewPreload = (voice: string) => {
 
       const data = await fetchGeminiText(prompt, 0.9, 800, schema, signal, null, {
         scopeId,
-        supersedeKey: 'interview:paper'
+        supersedeKey: 'interview:paper',
+        isBackground: true
       });
       if (!data || !Array.isArray(data.questions) || data.questions.length === 0) {
         throw new Error('Invalid output format');
@@ -149,7 +152,8 @@ export const queueInterviewPreload = (voice: string) => {
         signal,
         {
           scopeId,
-          supersedeKey: 'interview:first-tts'
+          supersedeKey: 'interview:first-tts',
+          isBackground: true
         }
       );
 
@@ -207,7 +211,8 @@ export const queueListeningPreload = () => {
 
       const data = await fetchGeminiText(prompt, 0.9, 2000, schema, signal, null, {
         scopeId,
-        supersedeKey: 'listening:conversation'
+        supersedeKey: 'listening:conversation',
+        isBackground: true
       });
       if (!data || !data.transcript) {
         throw new Error('Invalid output format');
@@ -215,7 +220,8 @@ export const queueListeningPreload = () => {
 
       const audioUrl = await fetchConversationTTS(data.transcript, signal, {
         scopeId,
-        supersedeKey: 'listening:tts'
+        supersedeKey: 'listening:tts',
+        isBackground: true
       });
       if (!audioUrl) {
         throw new Error('Audio generation format failed');
@@ -260,12 +266,14 @@ export const queueDictationPreload = () => {
 
       const data = await fetchGeminiText(prompt, 0.9, 2000, schema, signal, null, {
         scopeId,
-        supersedeKey: 'dictation:text'
+        supersedeKey: 'dictation:text',
+        isBackground: true
       });
       const tokens = processDictationText(data.text);
       const audioUrl = await fetchNeuralTTS('Charon', data.text, signal, {
         scopeId,
-        supersedeKey: 'dictation:tts'
+        supersedeKey: 'dictation:tts',
+        isBackground: true
       });
       if (!audioUrl) {
         throw new Error('Audio generation failed');

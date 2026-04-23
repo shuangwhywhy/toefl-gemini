@@ -81,8 +81,12 @@ const isBusyOrRateLimitedError = (error: unknown) => {
   );
 };
 
-const buildBucketKey = (route: LLMRouteKey) =>
-  `${route.platform}:${route.service}:${route.model}`;
+const buildBucketKey = (route: LLMRouteKey) => {
+  if (route.service.startsWith('tts-')) {
+    return `${route.platform}:tts-shared:${route.model}`;
+  }
+  return `${route.platform}:${route.service}:${route.model}`;
+};
 const buildCoalesceKey = (route: LLMRouteKey, businessKey: string) =>
   `${buildBucketKey(route)}:${businessKey}`;
 
@@ -138,6 +142,10 @@ class LLMClient {
       | SharedRequestState<T>
       | undefined;
     if (activeShared && activeShared.status !== 'settled') {
+      // If the new request is NOT background but the existing one is, promote it
+      if (!request.isBackground && activeShared.entry.request.isBackground) {
+        activeShared.entry.request.isBackground = false;
+      }
       return await this.attachSubscriber(activeShared, request);
     }
 
@@ -375,6 +383,14 @@ class LLMClient {
       if (!availability.allowed) {
         continue;
       }
+
+      // Background throttling: reserve at least one slot for UI if concurrency allows
+      if (head.request.isBackground && bucket.policy.maxConcurrency > 1) {
+        if (bucket.inFlightCount >= bucket.policy.maxConcurrency - 1) {
+          continue;
+        }
+      }
+
       if (!best || head.seq < best.entry.seq) {
         best = { bucket, entry: head };
       }
