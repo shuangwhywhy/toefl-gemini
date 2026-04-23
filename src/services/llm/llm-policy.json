@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "defaults": {
+    "busyRetry": {
+      "maxRetries": 2,
+      "minDelay": "10s"
+    },
+    "backgroundQueue": {
+      "cooldownAfterBusy": "30s"
+    }
+  },
+  "profiles": {
+    "standardText": {
+      "description": "Default budget for regular text generation.",
+      "concurrency": 2,
+      "limits": {
+        "started": {
+          "1m": 15,
+          "1d": 500
+        }
+      }
+    },
+    "singleLane": {
+      "description": "Only one in-flight request at a time.",
+      "concurrency": 1
+    }
+  },
+  "sharedPools": {
+    "speechSynthesis": {
+      "description": "Shared request budget for all TTS tasks.",
+      "limits": {
+        "started": {
+          "1m": 15,
+          "1d": 200
+        },
+        "active": 1
+      }
+    }
+  },
+  "capabilities": {
+    "textGeneration": {
+      "general": {
+        "use": ["standardText"]
+      },
+      "evaluation": {
+        "use": ["standardText", "singleLane"]
+      },
+      "chat": {
+        "use": ["standardText", "singleLane"]
+      }
+    },
+    "speech": {
+      "singleVoice": {
+        "description": "Single-speaker TTS.",
+        "concurrency": 2,
+        "pool": "speechSynthesis",
+        "limits": {
+          "active": 2
+        },
+        "models": {
+          "gemini-2.5-flash-preview-tts": {}
+        }
+      },
+      "multiVoiceConversation": {
+        "description": "Multi-speaker TTS.",
+        "concurrency": 1,
+        "pool": "speechSynthesis",
+        "limits": {
+          "active": 2
+        }
+      },
+      "transcription": {
+        "description": "Speech-to-text requests.",
+        "concurrency": 1,
+        "limits": {
+          "started": {
+            "1m": 6,
+            "5m": 18,
+            "1d": 180
+          },
+          "active": 1
+        }
+      }
+    }
+  }
+}

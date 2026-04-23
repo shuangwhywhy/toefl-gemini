@@ -23,6 +23,12 @@ vi.mock('../services/storage/db', () => {
 
 import { ScopeCancelledError, SupersededError } from '../services/llm/errors';
 import { createTestLLMClient } from '../services/llm/client';
+import {
+  getSchedulerPolicy,
+  resolveRoutePolicy,
+  resolveSharedPoolPolicy
+} from '../services/llm/config';
+import type { LLMRouteKey } from '../services/llm/types';
 
 const textRoute = {
   platform: 'gemini',
@@ -36,7 +42,13 @@ const transcriptionRoute = {
   model: 'gemini-2.5-flash'
 };
 
-const multiTtsRoute = {
+const ttsSingleRoute = {
+  platform: 'gemini',
+  service: 'tts-single',
+  model: 'gemini-2.5-flash-preview-tts'
+};
+
+const ttsMultiRoute = {
   platform: 'gemini',
   service: 'tts-multi',
   model: 'gemini-2.5-flash-preview-tts'
@@ -67,16 +79,26 @@ const deferred = <T,>() => {
 
 const createRequest = (
   client: ReturnType<typeof createTestLLMClient>,
-  route = textRoute,
-  scopeId = 'scope-a',
-  supersedeKey?: string,
-  businessKey = `${route.service}:test`
+  {
+    route = textRoute,
+    scopeId = 'scope-a',
+    supersedeKey,
+    businessKey = `${route.service}:test`,
+    isBackground = false
+  }: {
+    route?: LLMRouteKey;
+    scopeId?: string;
+    supersedeKey?: string;
+    businessKey?: string;
+    isBackground?: boolean;
+  } = {}
 ) =>
   client.request({
     route,
     scopeId,
     supersedeKey,
     businessKey,
+    isBackground,
     payload: {
       kind: 'generate-content',
       params: {
@@ -110,18 +132,18 @@ describe('LLMClient scheduler', () => {
 
     const client = createTestLLMClient(clock);
 
-    const p1 = createRequest(client, textRoute, 'scope-a', undefined, 'text:a');
-    const p2 = createRequest(client, textRoute, 'scope-b', undefined, 'text:b');
-    const p3 = createRequest(client, textRoute, 'scope-c', undefined, 'text:c');
-    const p4 = createRequest(client, textRoute, 'scope-d', undefined, 'text:d');
+    const p1 = createRequest(client, { route: textRoute, scopeId: 'scope-a', businessKey: 'text:a' });
+    const p2 = createRequest(client, { route: textRoute, scopeId: 'scope-b', businessKey: 'text:b' });
+    const p3 = createRequest(client, { route: textRoute, scopeId: 'scope-c', businessKey: 'text:c' });
+    const p4 = createRequest(client, { route: textRoute, scopeId: 'scope-d', businessKey: 'text:d' });
 
     await flush();
-    expect(generateContentMock).toHaveBeenCalledTimes(3);
+    expect(generateContentMock).toHaveBeenCalledTimes(2);
 
     first.resolve({ id: 1 });
     await p1;
     await flush();
-    expect(generateContentMock).toHaveBeenCalledTimes(4);
+    expect(generateContentMock).toHaveBeenCalledTimes(3);
 
     second.resolve({ id: 2 });
     third.resolve({ id: 3 });
@@ -132,70 +154,61 @@ describe('LLMClient scheduler', () => {
   it('supersedes only the matching pending request and preserves unrelated queued work', async () => {
     const activeA = deferred<any>();
     const activeB = deferred<any>();
-    const activeC = deferred<any>();
     const replacement = deferred<any>();
     generateContentMock
       .mockImplementationOnce(() => activeA.promise)
       .mockImplementationOnce(() => activeB.promise)
-      .mockImplementationOnce(() => activeC.promise)
       .mockImplementationOnce(() => replacement.promise);
 
     const client = createTestLLMClient(clock);
 
-    const runningA = createRequest(client, textRoute, 'scope-1', undefined, 'text:1');
-    const runningB = createRequest(client, textRoute, 'scope-2', undefined, 'text:2');
-    const runningC = createRequest(client, textRoute, 'scope-3', undefined, 'text:3');
+    const runningA = createRequest(client, { route: textRoute, scopeId: 'scope-1', businessKey: 'text:1' });
+    const runningB = createRequest(client, { route: textRoute, scopeId: 'scope-2', businessKey: 'text:2' });
     await flush();
 
-    const oldPending = createRequest(
-      client,
-      textRoute,
-      'scope-4',
-      'same-logical-request',
-      'text:old'
-    );
-    const newPending = createRequest(
-      client,
-      textRoute,
-      'scope-4',
-      'same-logical-request',
-      'text:new'
-    );
+    const oldPending = createRequest(client, {
+      route: textRoute,
+      scopeId: 'scope-4',
+      supersedeKey: 'same-logical-request',
+      businessKey: 'text:old'
+    });
+    const newPending = createRequest(client, {
+      route: textRoute,
+      scopeId: 'scope-4',
+      supersedeKey: 'same-logical-request',
+      businessKey: 'text:new'
+    });
 
     await expect(oldPending).rejects.toBeInstanceOf(SupersededError);
-    expect(generateContentMock).toHaveBeenCalledTimes(3);
+    expect(generateContentMock).toHaveBeenCalledTimes(2);
 
     activeA.resolve({ ok: true });
     await runningA;
     await flush();
-    expect(generateContentMock).toHaveBeenCalledTimes(4);
+    expect(generateContentMock).toHaveBeenCalledTimes(3);
 
     activeB.resolve({ ok: true });
-    activeC.resolve({ ok: true });
     replacement.resolve({ ok: true });
-    await Promise.all([runningB, runningC, newPending]);
+    await Promise.all([runningB, newPending]);
   });
 
   it('cancels only pending work for the requested scope', async () => {
     const activeA = deferred<any>();
     const activeB = deferred<any>();
-    const activeC = deferred<any>();
     const survivingPending = deferred<any>();
     generateContentMock
       .mockImplementationOnce(() => activeA.promise)
       .mockImplementationOnce(() => activeB.promise)
-      .mockImplementationOnce(() => activeC.promise)
       .mockImplementationOnce(() => survivingPending.promise);
 
     const client = createTestLLMClient(clock);
 
-    const runningA = createRequest(client, textRoute, 'scope-1', undefined, 'text:1');
-    const runningB = createRequest(client, textRoute, 'scope-2', undefined, 'text:2');
-    const runningC = createRequest(client, textRoute, 'scope-3', undefined, 'text:3');
+    const runningA = createRequest(client, { route: textRoute, scopeId: 'scope-1', businessKey: 'text:1' });
+    const runningB = createRequest(client, { route: textRoute, scopeId: 'scope-2', businessKey: 'text:2' });
     await flush();
 
-    const cancelled = createRequest(client, textRoute, 'scene-a', undefined, 'text:cancel');
-    const survives = createRequest(client, textRoute, 'scene-b', undefined, 'text:survive');
+    const cancelled = createRequest(client, { route: textRoute, scopeId: 'scene-a', businessKey: 'text:cancel' });
+    const survives = createRequest(client, { route: textRoute, scopeId: 'scene-b', businessKey: 'text:survive' });
     await flush();
 
     client.cancelPendingByScope('scene-a');
@@ -204,33 +217,45 @@ describe('LLMClient scheduler', () => {
     activeA.resolve({ ok: true });
     await runningA;
     await flush();
-    expect(generateContentMock).toHaveBeenCalledTimes(4);
+    expect(generateContentMock).toHaveBeenCalledTimes(3);
 
     activeB.resolve({ ok: true });
-    activeC.resolve({ ok: true });
     survivingPending.resolve({ ok: true });
-    await flush();
+    await Promise.all([runningB, survives]);
   });
 
-  it('waits for the next started-in-window budget before dispatching another request', async () => {
+  it('waits for the next started-in-window budget before dispatching another transcription request', async () => {
     generateContentMock.mockResolvedValue({ ok: true });
     const client = createTestLLMClient(clock);
+    const transcriptionPolicy = resolveRoutePolicy(transcriptionRoute);
 
-    await createRequest(client, multiTtsRoute, 'tts-1', undefined, 'tts:1');
-    await createRequest(client, multiTtsRoute, 'tts-2', undefined, 'tts:2');
-    await createRequest(client, multiTtsRoute, 'tts-3', undefined, 'tts:3');
-    await createRequest(client, multiTtsRoute, 'tts-4', undefined, 'tts:4');
+    for (let index = 1; index <= 6; index += 1) {
+      await createRequest(client, {
+        route: transcriptionRoute,
+        scopeId: `transcribe-${index}`,
+        businessKey: `transcribe:${index}`
+      });
+    }
 
-    const fifth = createRequest(client, multiTtsRoute, 'tts-5', undefined, 'tts:5');
+    const seventh = createRequest(client, {
+      route: transcriptionRoute,
+      scopeId: 'transcribe-7',
+      businessKey: 'transcribe:7'
+    });
     await flush();
-    expect(generateContentMock).toHaveBeenCalledTimes(4);
+    expect(generateContentMock).toHaveBeenCalledTimes(6);
 
-    await vi.advanceTimersByTimeAsync(59_999);
-    expect(generateContentMock).toHaveBeenCalledTimes(4);
+    const oneMinuteRule = transcriptionPolicy.rules.find(
+      (rule) => rule.id === 'transcribe.started.1m'
+    );
+    expect(oneMinuteRule?.mode).toBe('started_in_window');
+
+    await vi.advanceTimersByTimeAsync((oneMinuteRule as { windowMs: number }).windowMs - 1);
+    expect(generateContentMock).toHaveBeenCalledTimes(6);
 
     await vi.advanceTimersByTimeAsync(1);
-    expect(generateContentMock).toHaveBeenCalledTimes(5);
-    await fifth;
+    expect(generateContentMock).toHaveBeenCalledTimes(7);
+    await seventh;
   });
 
   it('keeps the worker slot occupied during busy retries so queued work cannot cut in', async () => {
@@ -241,26 +266,23 @@ describe('LLMClient scheduler', () => {
       .mockResolvedValueOnce({ ok: 'queued-after-retry' });
 
     const client = createTestLLMClient(clock);
+    const transcriptionPolicy = resolveRoutePolicy(transcriptionRoute);
 
-    const first = createRequest(
-      client,
-      transcriptionRoute,
-      'transcribe-a',
-      undefined,
-      'transcribe:a'
-    );
-    const second = createRequest(
-      client,
-      transcriptionRoute,
-      'transcribe-b',
-      undefined,
-      'transcribe:b'
-    );
+    const first = createRequest(client, {
+      route: transcriptionRoute,
+      scopeId: 'transcribe-a',
+      businessKey: 'transcribe:a'
+    });
+    const second = createRequest(client, {
+      route: transcriptionRoute,
+      scopeId: 'transcribe-b',
+      businessKey: 'transcribe:b'
+    });
     await flush();
 
     expect(generateContentMock).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(1_999);
+    await vi.advanceTimersByTimeAsync(transcriptionPolicy.minBusyRetryDelayMs - 1);
     expect(generateContentMock).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(1);
@@ -274,54 +296,114 @@ describe('LLMClient scheduler', () => {
     await second;
   });
 
+  it('shares the TTS pool active budget across single and multi speaker routes', async () => {
+    const singleVoice = deferred<any>();
+    const multiVoice = deferred<any>();
+    generateContentMock
+      .mockImplementationOnce(() => singleVoice.promise)
+      .mockImplementationOnce(() => multiVoice.promise);
+
+    const client = createTestLLMClient(clock);
+
+    const single = createRequest(client, {
+      route: ttsSingleRoute,
+      scopeId: 'tts-single-a',
+      businessKey: 'tts:single:a'
+    });
+    const multi = createRequest(client, {
+      route: ttsMultiRoute,
+      scopeId: 'tts-multi-a',
+      businessKey: 'tts:multi:a'
+    });
+
+    await flush();
+    expect(generateContentMock).toHaveBeenCalledTimes(1);
+
+    singleVoice.resolve({ ok: 'single-complete' });
+    await single;
+    await flush();
+    expect(generateContentMock).toHaveBeenCalledTimes(2);
+
+    multiVoice.resolve({ ok: 'multi-complete' });
+    await multi;
+  });
+
+  it('shares the TTS pool started budget across single and multi speaker routes', async () => {
+    generateContentMock.mockResolvedValue({ ok: true });
+    const client = createTestLLMClient(clock);
+    const sharedPoolPolicy = resolveSharedPoolPolicy(ttsSingleRoute);
+
+    for (let index = 1; index <= 15; index += 1) {
+      await createRequest(client, {
+        route: index % 2 === 0 ? ttsMultiRoute : ttsSingleRoute,
+        scopeId: `tts-shared-${index}`,
+        businessKey: `tts:shared:${index}`
+      });
+    }
+
+    const blocked = createRequest(client, {
+      route: ttsMultiRoute,
+      scopeId: 'tts-shared-16',
+      businessKey: 'tts:shared:16'
+    });
+    await flush();
+    expect(generateContentMock).toHaveBeenCalledTimes(15);
+
+    const oneMinuteRule = sharedPoolPolicy?.rules.find(
+      (rule) => rule.id === 'tts.shared.started.1m'
+    );
+    expect(oneMinuteRule?.mode).toBe('started_in_window');
+
+    await vi.advanceTimersByTimeAsync((oneMinuteRule as { windowMs: number }).windowMs - 1);
+    expect(generateContentMock).toHaveBeenCalledTimes(15);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(generateContentMock).toHaveBeenCalledTimes(16);
+    await blocked;
+  });
+
   it('coalesces an identical pending request instead of queueing a second root request', async () => {
     const activeA = deferred<any>();
     const activeB = deferred<any>();
-    const activeC = deferred<any>();
     const sharedPending = deferred<any>();
     generateContentMock
       .mockImplementationOnce(() => activeA.promise)
       .mockImplementationOnce(() => activeB.promise)
-      .mockImplementationOnce(() => activeC.promise)
       .mockImplementationOnce(() => sharedPending.promise);
 
     const client = createTestLLMClient(clock);
 
-    const runningA = createRequest(client, textRoute, 'scope-1', undefined, 'text:1');
-    const runningB = createRequest(client, textRoute, 'scope-2', undefined, 'text:2');
-    const runningC = createRequest(client, textRoute, 'scope-3', undefined, 'text:3');
+    const runningA = createRequest(client, { route: textRoute, scopeId: 'scope-1', businessKey: 'text:1' });
+    const runningB = createRequest(client, { route: textRoute, scopeId: 'scope-2', businessKey: 'text:2' });
     await flush();
 
-    const pendingRoot = createRequest(
-      client,
-      textRoute,
-      'scope-4',
-      'same-family',
-      'text:shared'
-    );
-    const pendingFollower = createRequest(
-      client,
-      textRoute,
-      'scope-5',
-      'another-family',
-      'text:shared'
-    );
+    const pendingRoot = createRequest(client, {
+      route: textRoute,
+      scopeId: 'scope-4',
+      supersedeKey: 'same-family',
+      businessKey: 'text:shared'
+    });
+    const pendingFollower = createRequest(client, {
+      route: textRoute,
+      scopeId: 'scope-5',
+      supersedeKey: 'another-family',
+      businessKey: 'text:shared'
+    });
 
     await flush();
-    expect(generateContentMock).toHaveBeenCalledTimes(3);
+    expect(generateContentMock).toHaveBeenCalledTimes(2);
 
     activeA.resolve({ ok: 'slot-freed' });
     await runningA;
     await flush();
-    expect(generateContentMock).toHaveBeenCalledTimes(4);
+    expect(generateContentMock).toHaveBeenCalledTimes(3);
 
     sharedPending.resolve({ ok: 'shared-result' });
     await expect(pendingRoot).resolves.toEqual({ ok: 'shared-result' });
     await expect(pendingFollower).resolves.toEqual({ ok: 'shared-result' });
 
     activeB.resolve({ ok: true });
-    activeC.resolve({ ok: true });
-    await Promise.all([runningB, runningC]);
+    await Promise.all([runningB]);
   });
 
   it('coalesces an identical in-flight request and preserves callback order', async () => {
@@ -331,24 +413,22 @@ describe('LLMClient scheduler', () => {
     const client = createTestLLMClient(clock);
 
     const order: string[] = [];
-    const first = createRequest(
-      client,
-      transcriptionRoute,
-      'scope-a',
-      'family-a',
-      'shared:audio'
-    ).finally(() => {
+    const first = createRequest(client, {
+      route: transcriptionRoute,
+      scopeId: 'scope-a',
+      supersedeKey: 'family-a',
+      businessKey: 'shared:audio'
+    }).finally(() => {
       order.push('first');
     });
     await flush();
 
-    const second = createRequest(
-      client,
-      transcriptionRoute,
-      'scope-b',
-      'family-b',
-      'shared:audio'
-    ).finally(() => {
+    const second = createRequest(client, {
+      route: transcriptionRoute,
+      scopeId: 'scope-b',
+      supersedeKey: 'family-b',
+      businessKey: 'shared:audio'
+    }).finally(() => {
       order.push('second');
     });
     await flush();
@@ -367,22 +447,20 @@ describe('LLMClient scheduler', () => {
 
     const client = createTestLLMClient(clock);
 
-    const first = createRequest(
-      client,
-      transcriptionRoute,
-      'scope-a',
-      'family-a',
-      'shared:audio'
-    );
+    const first = createRequest(client, {
+      route: transcriptionRoute,
+      scopeId: 'scope-a',
+      supersedeKey: 'family-a',
+      businessKey: 'shared:audio'
+    });
     await flush();
 
-    const second = createRequest(
-      client,
-      transcriptionRoute,
-      'scope-b',
-      'family-b',
-      'shared:audio'
-    );
+    const second = createRequest(client, {
+      route: transcriptionRoute,
+      scopeId: 'scope-b',
+      supersedeKey: 'family-b',
+      businessKey: 'shared:audio'
+    });
     await flush();
 
     client.cancelPendingByScope('scope-b');
@@ -391,5 +469,53 @@ describe('LLMClient scheduler', () => {
     sharedInFlight.resolve({ ok: 'still-runs' });
     await expect(first).resolves.toEqual({ ok: 'still-runs' });
     expect(generateContentMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds background work during the configured busy cooldown after repeated 429s', async () => {
+    generateContentMock
+      .mockRejectedValueOnce({ status: 429, message: 'rate limited' })
+      .mockRejectedValueOnce({ status: 429, message: 'rate limited' })
+      .mockRejectedValueOnce({ status: 429, message: 'rate limited' })
+      .mockResolvedValueOnce({ ok: 'after-cooldown' });
+
+    const client = createTestLLMClient(clock);
+    const textPolicy = resolveRoutePolicy(textRoute);
+    const { backgroundBusyCooldownMs } = getSchedulerPolicy();
+
+    const first = createRequest(client, {
+      route: textRoute,
+      scopeId: 'background-a',
+      businessKey: 'background:a',
+      isBackground: true
+    });
+    const firstRejection = expect(first).rejects.toMatchObject({ status: 429 });
+    const second = createRequest(client, {
+      route: textRoute,
+      scopeId: 'background-b',
+      businessKey: 'background:b',
+      isBackground: true
+    });
+
+    await flush();
+    expect(generateContentMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(textPolicy.minBusyRetryDelayMs);
+    expect(generateContentMock).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(textPolicy.minBusyRetryDelayMs);
+    await firstRejection;
+    await flush();
+    expect(generateContentMock).toHaveBeenCalledTimes(3);
+
+    await vi.advanceTimersByTimeAsync(backgroundBusyCooldownMs - 1);
+    expect(generateContentMock).toHaveBeenCalledTimes(3);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(generateContentMock).toHaveBeenCalledTimes(3);
+
+    client.cancelPendingByScope('missing-scope');
+    await flush();
+    expect(generateContentMock).toHaveBeenCalledTimes(4);
+    await expect(second).resolves.toEqual({ ok: 'after-cooldown' });
   });
 });

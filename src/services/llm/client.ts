@@ -1,13 +1,19 @@
 import { GoogleGenAI } from '@google/genai';
 import { DBUtils } from '../storage/db';
 import { ScopeCancelledError, SupersededError } from './errors';
-import { GEMINI_PLATFORM, resolveRoutePolicy } from './config';
+import {
+  GEMINI_PLATFORM,
+  getSchedulerPolicy,
+  resolveRoutePolicy,
+  resolveSharedPoolPolicy
+} from './config';
 import type {
   LLMRequest,
   LLMPayload,
   LLMRouteKey,
   PersistedRateState,
   RateLimitRule,
+  ResolvedSharedPoolPolicy,
   RoutePolicy
 } from './types';
 
@@ -35,14 +41,22 @@ interface QueueEntry<T> {
   bucketKey: string;
   route: LLMRouteKey;
   policy: RoutePolicy;
+  sharedPool: ResolvedSharedPoolPolicy | null;
   coalesceKey: string;
 }
 
-interface BucketState {
+interface RouteBucketState {
   key: string;
   route: LLMRouteKey;
   policy: RoutePolicy;
   pending: QueueEntry<unknown>[];
+  histories: Record<string, number[]>;
+  inFlightCount: number;
+}
+
+interface SharedPoolState {
+  key: string;
+  policy: ResolvedSharedPoolPolicy;
   histories: Record<string, number[]>;
   inFlightCount: number;
 }
@@ -59,6 +73,7 @@ interface SchedulerClock {
 }
 
 const RATE_STATE_KEY = 'llm_rate_state_v1';
+const schedulerPolicy = getSchedulerPolicy();
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
@@ -81,34 +96,45 @@ const isBusyOrRateLimitedError = (error: unknown) => {
   );
 };
 
-const buildBucketKey = (route: LLMRouteKey) => {
-  if (route.service.startsWith('tts-')) {
-    return `${route.platform}:tts-shared:${route.model}`;
-  }
-  return `${route.platform}:${route.service}:${route.model}`;
-};
+const buildRouteBucketKey = (route: LLMRouteKey) =>
+  `${route.platform}:${route.service}:${route.model}`;
+
 const buildCoalesceKey = (route: LLMRouteKey, businessKey: string) =>
-  `${buildBucketKey(route)}:${businessKey}`;
+  `${buildRouteBucketKey(route)}:${businessKey}`;
 
 const generateId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
-const clonePersistedState = (buckets: Map<string, BucketState>) => {
+const clonePersistedState = (
+  routeBuckets: Map<string, RouteBucketState>,
+  sharedPools: Map<string, SharedPoolState>
+) => {
   const histories: PersistedRateState['histories'] = {};
-  for (const [bucketKey, bucket] of buckets.entries()) {
+
+  for (const [bucketKey, bucket] of routeBuckets.entries()) {
     histories[bucketKey] = {};
     for (const [ruleId, values] of Object.entries(bucket.histories)) {
       histories[bucketKey][ruleId] = [...values];
     }
   }
+
+  for (const [poolKey, pool] of sharedPools.entries()) {
+    histories[poolKey] = {};
+    for (const [ruleId, values] of Object.entries(pool.histories)) {
+      histories[poolKey][ruleId] = [...values];
+    }
+  }
+
   return { histories };
 };
 
 class LLMClient {
-  private readonly buckets = new Map<string, BucketState>();
+  private readonly routeBuckets = new Map<string, RouteBucketState>();
+  private readonly sharedPools = new Map<string, SharedPoolState>();
   private readonly sharedRequests = new Map<string, SharedRequestState<unknown>>();
   private readonly readyPromise: Promise<void>;
   private readonly ai: GoogleGenAI;
+  private persistedHistories: PersistedRateState['histories'] = {};
   private wakeTimer: number | null = null;
   private wakeAt: number | null = null;
   private seq = 0;
@@ -133,9 +159,14 @@ class LLMClient {
       model: request.route.model
     };
     const policy = resolveRoutePolicy(route);
-    const bucketKey = buildBucketKey(route);
+    const sharedPool = resolveSharedPoolPolicy(route);
+    const bucketKey = buildRouteBucketKey(route);
     const coalesceKey = buildCoalesceKey(route, request.businessKey);
-    const bucket = this.getOrCreateBucket(bucketKey, route, policy);
+    const bucket = this.getOrCreateRouteBucket(bucketKey, route, policy);
+
+    if (sharedPool) {
+      this.getOrCreateSharedPool(sharedPool);
+    }
 
     this.supersedePending(request.scopeId, request.supersedeKey, coalesceKey);
 
@@ -143,7 +174,6 @@ class LLMClient {
       | SharedRequestState<T>
       | undefined;
     if (activeShared && activeShared.status !== 'settled') {
-      // If the new request is NOT background but the existing one is, promote it
       if (!request.isBackground && activeShared.entry.request.isBackground) {
         activeShared.entry.request.isBackground = false;
       }
@@ -158,6 +188,7 @@ class LLMClient {
       bucketKey,
       route,
       policy,
+      sharedPool,
       coalesceKey
     };
     const shared: SharedRequestState<T> = {
@@ -196,45 +227,69 @@ class LLMClient {
     const persisted = await DBUtils.get<PersistedRateState>(RATE_STATE_KEY, {
       histories: {}
     });
-    for (const [bucketKey, ruleHistory] of Object.entries(persisted.histories)) {
-      const [platform, service, ...modelParts] = bucketKey.split(':');
-      const route = {
-        platform,
-        service,
-        model: modelParts.join(':')
-      };
-      const policy = resolveRoutePolicy(route);
-      const bucket = this.getOrCreateBucket(bucketKey, route, policy);
-      bucket.histories = Object.fromEntries(
-        Object.entries(ruleHistory).map(([ruleId, values]) => [
-          ruleId,
-          values.filter((value) => Number.isFinite(value))
-        ])
-      );
-      this.pruneHistories(bucket);
-    }
+
+    this.persistedHistories = Object.fromEntries(
+      Object.entries(persisted.histories ?? {}).map(([stateKey, ruleHistory]) => [
+        stateKey,
+        Object.fromEntries(
+          Object.entries(ruleHistory ?? {}).map(([ruleId, values]) => [
+            ruleId,
+            (Array.isArray(values) ? values : []).filter((value) =>
+              Number.isFinite(value)
+            )
+          ])
+        )
+      ])
+    );
   }
 
-  private getOrCreateBucket(
+  private readPersistedHistories(stateKey: string) {
+    const persisted = this.persistedHistories[stateKey] ?? {};
+    return Object.fromEntries(
+      Object.entries(persisted).map(([ruleId, values]) => [ruleId, [...values]])
+    );
+  }
+
+  private getOrCreateRouteBucket(
     bucketKey: string,
     route: LLMRouteKey,
     policy: RoutePolicy
   ) {
-    const existing = this.buckets.get(bucketKey);
+    const existing = this.routeBuckets.get(bucketKey);
     if (existing) {
       existing.policy = policy;
       return existing;
     }
-    const bucket: BucketState = {
+
+    const bucket: RouteBucketState = {
       key: bucketKey,
       route,
       policy,
       pending: [],
-      histories: {},
+      histories: this.readPersistedHistories(bucketKey),
       inFlightCount: 0
     };
-    this.buckets.set(bucketKey, bucket);
+    this.routeBuckets.set(bucketKey, bucket);
+    this.pruneHistories(bucket.policy.rules, bucket.histories);
     return bucket;
+  }
+
+  private getOrCreateSharedPool(policy: ResolvedSharedPoolPolicy) {
+    const existing = this.sharedPools.get(policy.stateKey);
+    if (existing) {
+      existing.policy = policy;
+      return existing;
+    }
+
+    const pool: SharedPoolState = {
+      key: policy.stateKey,
+      policy,
+      histories: this.readPersistedHistories(policy.stateKey),
+      inFlightCount: 0
+    };
+    this.sharedPools.set(policy.stateKey, pool);
+    this.pruneHistories(pool.policy.rules, pool.histories);
+    return pool;
   }
 
   private createSubscriber<T>(request: LLMRequest<T>) {
@@ -321,7 +376,7 @@ class LLMClient {
       return;
     }
 
-    const bucket = this.buckets.get(shared.bucketKey);
+    const bucket = this.routeBuckets.get(shared.bucketKey);
     if (bucket) {
       bucket.pending = bucket.pending.filter((entry) => entry.id !== shared.entry.id);
     }
@@ -374,27 +429,25 @@ class LLMClient {
   }
 
   private findNextRunnableEntry() {
-    let best: { bucket: BucketState; entry: QueueEntry<unknown> } | null = null;
-    for (const bucket of this.buckets.values()) {
+    let best: { bucket: RouteBucketState; entry: QueueEntry<unknown> } | null = null;
+    for (const bucket of this.routeBuckets.values()) {
       const head = bucket.pending[0];
       if (!head) {
         continue;
       }
-      const availability = this.getAvailability(bucket);
+
+      const availability = this.getEntryAvailability(bucket, head.sharedPool);
       if (!availability.allowed) {
         continue;
       }
 
-      // Circuit Breaker for background tasks: If we hit a 429 recently, stop preloading
       if (head.request.isBackground && this.lastBusyAt) {
         const now = this.clock.now();
-        // Give the API 30 seconds of "breathing room" for background tasks after a 429
-        if (now - this.lastBusyAt < 30000) {
+        if (now - this.lastBusyAt < schedulerPolicy.backgroundBusyCooldownMs) {
           continue;
         }
       }
 
-      // Background throttling: reserve at least one slot for UI if concurrency allows
       if (head.request.isBackground && bucket.policy.maxConcurrency > 1) {
         if (bucket.inFlightCount >= bucket.policy.maxConcurrency - 1) {
           continue;
@@ -410,14 +463,17 @@ class LLMClient {
 
   private computeNextWakeAt() {
     let nextWakeAt: number | null = null;
-    for (const bucket of this.buckets.values()) {
-      if (!bucket.pending.length) {
+    for (const bucket of this.routeBuckets.values()) {
+      const head = bucket.pending[0];
+      if (!head) {
         continue;
       }
-      const availability = this.getAvailability(bucket);
+
+      const availability = this.getEntryAvailability(bucket, head.sharedPool);
       if (availability.allowed || availability.nextWakeAt === null) {
         continue;
       }
+
       if (nextWakeAt === null || availability.nextWakeAt < nextWakeAt) {
         nextWakeAt = availability.nextWakeAt;
       }
@@ -453,23 +509,71 @@ class LLMClient {
     }, delay);
   }
 
-  private getAvailability(bucket: BucketState): AvailabilityResult {
-    this.pruneHistories(bucket);
+  private getEntryAvailability(
+    bucket: RouteBucketState,
+    sharedPoolPolicy: ResolvedSharedPoolPolicy | null
+  ): AvailabilityResult {
+    const routeAvailability = this.getAvailability(
+      bucket.policy.rules,
+      bucket.histories,
+      bucket.inFlightCount,
+      bucket.policy.maxConcurrency
+    );
 
-    if (bucket.inFlightCount >= bucket.policy.maxConcurrency) {
+    if (!sharedPoolPolicy) {
+      return routeAvailability;
+    }
+
+    const pool = this.getOrCreateSharedPool(sharedPoolPolicy);
+    const poolAvailability = this.getAvailability(
+      pool.policy.rules,
+      pool.histories,
+      pool.inFlightCount
+    );
+
+    if (routeAvailability.allowed && poolAvailability.allowed) {
+      return { allowed: true, nextWakeAt: null };
+    }
+
+    const blockedAvailabilities = [routeAvailability, poolAvailability].filter(
+      (availability) => !availability.allowed
+    );
+    const wakeAts = blockedAvailabilities
+      .map((availability) => availability.nextWakeAt)
+      .filter((value): value is number => value !== null);
+
+    if (wakeAts.length !== blockedAvailabilities.length) {
+      return { allowed: false, nextWakeAt: null };
+    }
+
+    return {
+      allowed: false,
+      nextWakeAt: Math.max(...wakeAts)
+    };
+  }
+
+  private getAvailability(
+    rules: RateLimitRule[],
+    histories: Record<string, number[]>,
+    inFlightCount: number,
+    maxConcurrency?: number
+  ): AvailabilityResult {
+    this.pruneHistories(rules, histories);
+
+    if (maxConcurrency !== undefined && inFlightCount >= maxConcurrency) {
       return { allowed: false, nextWakeAt: null };
     }
 
     let nextWakeAt: number | null = null;
-    for (const rule of bucket.policy.rules) {
+    for (const rule of rules) {
       if (rule.mode === 'active_requests') {
-        if (bucket.inFlightCount >= rule.max) {
+        if (inFlightCount >= rule.max) {
           return { allowed: false, nextWakeAt: null };
         }
         continue;
       }
 
-      const timestamps = bucket.histories[rule.id] ?? [];
+      const timestamps = histories[rule.id] ?? [];
       if (timestamps.length >= rule.max) {
         const blockedUntil = timestamps[0] + rule.windowMs;
         nextWakeAt = nextWakeAt === null ? blockedUntil : Math.max(nextWakeAt, blockedUntil);
@@ -479,28 +583,36 @@ class LLMClient {
     return { allowed: nextWakeAt === null, nextWakeAt };
   }
 
-  private pruneHistories(bucket: BucketState) {
+  private pruneHistories(
+    rules: RateLimitRule[],
+    histories: Record<string, number[]>
+  ) {
     const now = this.clock.now();
-    for (const rule of bucket.policy.rules) {
+    for (const rule of rules) {
       if (rule.mode !== 'started_in_window') {
         continue;
       }
-      const existing = bucket.histories[rule.id] ?? [];
-      bucket.histories[rule.id] = existing.filter(
+
+      const existing = histories[rule.id] ?? [];
+      histories[rule.id] = existing.filter(
         (timestamp) => now - timestamp < rule.windowMs
       );
     }
   }
 
-  private recordStarted(bucket: BucketState) {
+  private recordStarted(
+    rules: RateLimitRule[],
+    histories: Record<string, number[]>
+  ) {
     const startedAt = this.clock.now();
-    for (const rule of bucket.policy.rules) {
+    for (const rule of rules) {
       if (rule.mode !== 'started_in_window') {
         continue;
       }
-      const existing = bucket.histories[rule.id] ?? [];
+
+      const existing = histories[rule.id] ?? [];
       existing.push(startedAt);
-      bucket.histories[rule.id] = existing;
+      histories[rule.id] = existing;
     }
     this.persistState();
   }
@@ -512,11 +624,14 @@ class LLMClient {
     this.flushing = true;
     queueMicrotask(() => {
       this.flushing = false;
-      void DBUtils.set(RATE_STATE_KEY, clonePersistedState(this.buckets));
+      void DBUtils.set(
+        RATE_STATE_KEY,
+        clonePersistedState(this.routeBuckets, this.sharedPools)
+      );
     });
   }
 
-  private startEntry(bucket: BucketState, entry: QueueEntry<unknown>) {
+  private startEntry(bucket: RouteBucketState, entry: QueueEntry<unknown>) {
     bucket.pending.shift();
     const shared = this.sharedRequests.get(entry.coalesceKey);
     if (!shared || shared.status !== 'pending') {
@@ -529,11 +644,21 @@ class LLMClient {
       return;
     }
 
+    const sharedPool = entry.sharedPool
+      ? this.getOrCreateSharedPool(entry.sharedPool)
+      : null;
+
     shared.status = 'in-flight';
     bucket.inFlightCount += 1;
-    this.recordStarted(bucket);
+    if (sharedPool) {
+      sharedPool.inFlightCount += 1;
+    }
+    this.recordStarted(bucket.policy.rules, bucket.histories);
+    if (sharedPool) {
+      this.recordStarted(sharedPool.policy.rules, sharedPool.histories);
+    }
 
-    void this.executeEntry(bucket, entry)
+    void this.executeEntry(bucket, sharedPool, entry)
       .then((value) => {
         this.settleShared(shared, { ok: true, value });
       })
@@ -542,11 +667,18 @@ class LLMClient {
       })
       .finally(() => {
         bucket.inFlightCount = Math.max(0, bucket.inFlightCount - 1);
+        if (sharedPool) {
+          sharedPool.inFlightCount = Math.max(0, sharedPool.inFlightCount - 1);
+        }
         this.processQueues();
       });
   }
 
-  private async executeEntry<T>(bucket: BucketState, entry: QueueEntry<T>) {
+  private async executeEntry<T>(
+    bucket: RouteBucketState,
+    sharedPool: SharedPoolState | null,
+    entry: QueueEntry<T>
+  ) {
     let attempt = 0;
     const maxAttempts = 1 + bucket.policy.maxRetries;
     let retryMinDelay = 0;
@@ -555,20 +687,23 @@ class LLMClient {
       attempt += 1;
       try {
         if (attempt > 1) {
-          await this.waitForRetryAllowance(bucket, retryMinDelay);
+          await this.waitForRetryAllowance(bucket, sharedPool, retryMinDelay);
           retryMinDelay = 0;
-          this.recordStarted(bucket);
+          this.recordStarted(bucket.policy.rules, bucket.histories);
+          if (sharedPool) {
+            this.recordStarted(sharedPool.policy.rules, sharedPool.histories);
+          }
         }
+
         const raw = await this.executePayload(entry.request.payload);
         const result = await entry.request.parser(raw);
-        // Recovery successful: Clear circuit breaker
         this.lastBusyAt = null;
         return result;
       } catch (error) {
         if (!isBusyOrRateLimitedError(error) || attempt >= maxAttempts) {
           throw error;
         }
-        // Record 429 time to trigger circuit breaker for background tasks
+
         this.lastBusyAt = this.clock.now();
         retryMinDelay = bucket.policy.minBusyRetryDelayMs;
       }
@@ -577,14 +712,18 @@ class LLMClient {
     throw new Error('Unreachable LLM retry state.');
   }
 
-  private getStartedWindowAvailability(bucket: BucketState) {
-    this.pruneHistories(bucket);
+  private getStartedWindowAvailability(
+    rules: RateLimitRule[],
+    histories: Record<string, number[]>
+  ) {
+    this.pruneHistories(rules, histories);
     let nextWakeAt: number | null = null;
-    for (const rule of bucket.policy.rules) {
+    for (const rule of rules) {
       if (rule.mode !== 'started_in_window') {
         continue;
       }
-      const timestamps = bucket.histories[rule.id] ?? [];
+
+      const timestamps = histories[rule.id] ?? [];
       if (timestamps.length >= rule.max) {
         const blockedUntil = timestamps[0] + rule.windowMs;
         nextWakeAt = nextWakeAt === null ? blockedUntil : Math.max(nextWakeAt, blockedUntil);
@@ -593,18 +732,33 @@ class LLMClient {
     return nextWakeAt;
   }
 
-  private async waitForRetryAllowance(bucket: BucketState, minDelayMs: number) {
+  private async waitForRetryAllowance(
+    bucket: RouteBucketState,
+    sharedPool: SharedPoolState | null,
+    minDelayMs: number
+  ) {
     while (true) {
       const now = this.clock.now();
-      const nextWakeAt = this.getStartedWindowAvailability(bucket);
-      const retryAt =
-        nextWakeAt === null
-          ? now + minDelayMs
-          : Math.max(nextWakeAt, now + minDelayMs);
+      const routeWakeAt = this.getStartedWindowAvailability(
+        bucket.policy.rules,
+        bucket.histories
+      );
+      const poolWakeAt = sharedPool
+        ? this.getStartedWindowAvailability(
+            sharedPool.policy.rules,
+            sharedPool.histories
+          )
+        : null;
+      const retryAt = Math.max(
+        now + minDelayMs,
+        routeWakeAt ?? now,
+        poolWakeAt ?? now
+      );
       const delay = Math.max(0, retryAt - now);
       if (delay === 0) {
         return;
       }
+
       await sleep(delay);
       minDelayMs = 0;
     }

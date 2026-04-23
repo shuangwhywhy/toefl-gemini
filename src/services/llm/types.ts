@@ -21,11 +21,110 @@ export type RateLimitRule =
   | StartedInWindowRateLimitRule
   | ActiveRequestsRateLimitRule;
 
-export interface RoutePolicy {
+export interface LLMBusyRetryConfig {
+  maxRetries?: number;
+  minDelay?: string;
+}
+
+export interface LLMLimitConfig {
+  started?: Record<string, number>;
+  active?: number;
+}
+
+export interface LLMPolicyProfileConfig {
+  description?: string;
+  concurrency?: number;
+  busyRetry?: LLMBusyRetryConfig;
+  limits?: LLMLimitConfig;
+}
+
+export interface LLMRouteModelOverrideConfig {
+  description?: string;
+  concurrency?: number;
+  busyRetry?: LLMBusyRetryConfig;
+  limits?: LLMLimitConfig;
+}
+
+export interface LLMRouteCapabilityConfig extends LLMPolicyProfileConfig {
+  use?: string[];
+  pool?: string;
+  models?: Record<string, LLMRouteModelOverrideConfig>;
+}
+
+export interface LLMSharedPoolConfig {
+  description?: string;
+  limits: LLMLimitConfig;
+}
+
+export interface LLMPolicyDefaults {
+  busyRetry: {
+    maxRetries: number;
+    minDelay: string;
+  };
+  backgroundQueue: {
+    cooldownAfterBusy: string;
+  };
+}
+
+export interface LLMTextGenerationCapabilitiesConfig {
+  general: LLMRouteCapabilityConfig;
+  evaluation: LLMRouteCapabilityConfig;
+  chat: LLMRouteCapabilityConfig;
+}
+
+export interface LLMSpeechCapabilitiesConfig {
+  singleVoice: LLMRouteCapabilityConfig;
+  multiVoiceConversation: LLMRouteCapabilityConfig;
+  transcription: LLMRouteCapabilityConfig;
+}
+
+export interface LLMPolicyConfigDocument {
+  version: number;
+  defaults: LLMPolicyDefaults;
+  profiles: Record<string, LLMPolicyProfileConfig>;
+  sharedPools: Record<string, LLMSharedPoolConfig>;
+  capabilities: {
+    textGeneration: LLMTextGenerationCapabilitiesConfig;
+    speech: LLMSpeechCapabilitiesConfig;
+  };
+}
+
+export interface LLMSchedulerPolicy {
+  backgroundBusyCooldownMs: number;
+}
+
+export interface ResolvedRouteExecutionPolicy {
   maxConcurrency: number;
-  rules: RateLimitRule[];
   maxRetries: number;
   minBusyRetryDelayMs: number;
+  rules: RateLimitRule[];
+  sharedPoolKey: string | null;
+}
+
+export type RoutePolicy = ResolvedRouteExecutionPolicy;
+
+export interface ResolvedSharedPoolPolicy {
+  key: string;
+  stateKey: string;
+  rules: RateLimitRule[];
+}
+
+export interface CompiledRouteDefinition {
+  defaultPolicy: ResolvedRouteExecutionPolicy;
+  modelPolicies: Record<string, ResolvedRouteExecutionPolicy>;
+}
+
+export interface CompiledSharedPoolDefinition {
+  key: string;
+  rules: RateLimitRule[];
+  stateBucketSegment: string;
+  appliesPerModel: boolean;
+}
+
+export interface CompiledLLMPolicyRegistry {
+  routes: Record<string, CompiledRouteDefinition>;
+  sharedPools: Record<string, CompiledSharedPoolDefinition>;
+  scheduler: LLMSchedulerPolicy;
 }
 
 export interface LLMRequestMeta {
