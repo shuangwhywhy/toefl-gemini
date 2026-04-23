@@ -1,0 +1,458 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		05AD6FB75955D79D0868BAF9 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F49492F742E3E2DA541EE849 /* MetalKit.framework */; };
+		29682FFE9D15AA26A36A8986 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 0C190858404CF6307B1558BA /* libapp.a */; };
+		2C1F9E807436D86E00D09A6A /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B4D9AED7A55D3C67EA2FAA38 /* UIKit.framework */; };
+		4DB1FF720C3F8623E87B4452 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0C645F6B2A2DD76D0783C234 /* Metal.framework */; };
+		4F21532F657953F46D35B15C /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 5D9C8FA1281979880CE38EF7 /* assets */; };
+		71B425107A1F6ED278A1A493 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B78EF08B6AAF12E2508CA8AD /* Assets.xcassets */; };
+		773942193D9130F74CD44DEB /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1AA9B4155059808074CAFACB /* Security.framework */; };
+		7EDD6B09BC04903BD589DC23 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E55CAE94407E36F2D59968FE /* QuartzCore.framework */; };
+		9054EB819D13399F0C7608A4 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2567F6473B898AA2009E4159 /* WebKit.framework */; };
+		AF52FAC0D28ECDD06D5D7AC1 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BA4CCC52083265A1F8CA5D8F /* CoreGraphics.framework */; };
+		F4AC9949B6C8458DDC855645 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = BB95F1C26F83DF9A860DCB0B /* main.mm */; };
+		F5D8137E3438F78257589BB3 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 5DB0F9E202AC26F956A35FE5 /* LaunchScreen.storyboard */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0C190858404CF6307B1558BA /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		0C645F6B2A2DD76D0783C234 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		1AA9B4155059808074CAFACB /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		2567F6473B898AA2009E4159 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		5D9C8FA1281979880CE38EF7 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
+		5DB0F9E202AC26F956A35FE5 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		944019BA7E4FA2D160E82F7A /* toefl-gemini_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "toefl-gemini_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		98AD8F58904FEC9C623B7C37 /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
+		B02E6983B749B19D7DF3FC82 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		B4D9AED7A55D3C67EA2FAA38 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		B78EF08B6AAF12E2508CA8AD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BA4CCC52083265A1F8CA5D8F /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		BB95F1C26F83DF9A860DCB0B /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		BDADCC837E6C7967302216DB /* toefl-gemini_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "toefl-gemini_iOS.entitlements"; sourceTree = "<group>"; };
+		DE5FDA4468D9562A8FFF45D1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		E55CAE94407E36F2D59968FE /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		F49492F742E3E2DA541EE849 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8F8BAE5FD2A43A1FD2825EE3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				29682FFE9D15AA26A36A8986 /* libapp.a in Frameworks */,
+				AF52FAC0D28ECDD06D5D7AC1 /* CoreGraphics.framework in Frameworks */,
+				4DB1FF720C3F8623E87B4452 /* Metal.framework in Frameworks */,
+				05AD6FB75955D79D0868BAF9 /* MetalKit.framework in Frameworks */,
+				7EDD6B09BC04903BD589DC23 /* QuartzCore.framework in Frameworks */,
+				773942193D9130F74CD44DEB /* Security.framework in Frameworks */,
+				2C1F9E807436D86E00D09A6A /* UIKit.framework in Frameworks */,
+				9054EB819D13399F0C7608A4 /* WebKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		24DFC79BBD96BDCE5C084BFC /* bindings */ = {
+			isa = PBXGroup;
+			children = (
+				B02E6983B749B19D7DF3FC82 /* bindings.h */,
+			);
+			path = bindings;
+			sourceTree = "<group>";
+		};
+		2AECC813FCF2F36B41F3B52A /* src */ = {
+			isa = PBXGroup;
+			children = (
+				98AD8F58904FEC9C623B7C37 /* main.rs */,
+			);
+			name = src;
+			path = ../../src;
+			sourceTree = "<group>";
+		};
+		38D5BC5597C39786B4B099F1 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				3A36EA95172594F7361CF843 /* toefl-gemini */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		3A36EA95172594F7361CF843 /* toefl-gemini */ = {
+			isa = PBXGroup;
+			children = (
+				BB95F1C26F83DF9A860DCB0B /* main.mm */,
+				24DFC79BBD96BDCE5C084BFC /* bindings */,
+			);
+			path = "toefl-gemini";
+			sourceTree = "<group>";
+		};
+		417D9E49A4A2BD683259CC3E /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				BA4CCC52083265A1F8CA5D8F /* CoreGraphics.framework */,
+				0C190858404CF6307B1558BA /* libapp.a */,
+				0C645F6B2A2DD76D0783C234 /* Metal.framework */,
+				F49492F742E3E2DA541EE849 /* MetalKit.framework */,
+				E55CAE94407E36F2D59968FE /* QuartzCore.framework */,
+				1AA9B4155059808074CAFACB /* Security.framework */,
+				B4D9AED7A55D3C67EA2FAA38 /* UIKit.framework */,
+				2567F6473B898AA2009E4159 /* WebKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		4F18782D13BF63DF490FBBFE /* toefl-gemini_iOS */ = {
+			isa = PBXGroup;
+			children = (
+				DE5FDA4468D9562A8FFF45D1 /* Info.plist */,
+				BDADCC837E6C7967302216DB /* toefl-gemini_iOS.entitlements */,
+			);
+			path = "toefl-gemini_iOS";
+			sourceTree = "<group>";
+		};
+		C09EBFA5F1C9485B729676A6 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				944019BA7E4FA2D160E82F7A /* toefl-gemini_iOS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		CB22D529A6350579401D4423 = {
+			isa = PBXGroup;
+			children = (
+				5D9C8FA1281979880CE38EF7 /* assets */,
+				B78EF08B6AAF12E2508CA8AD /* Assets.xcassets */,
+				5DB0F9E202AC26F956A35FE5 /* LaunchScreen.storyboard */,
+				F781B24FD7A4799D64DBEBF3 /* Externals */,
+				38D5BC5597C39786B4B099F1 /* Sources */,
+				2AECC813FCF2F36B41F3B52A /* src */,
+				4F18782D13BF63DF490FBBFE /* toefl-gemini_iOS */,
+				417D9E49A4A2BD683259CC3E /* Frameworks */,
+				C09EBFA5F1C9485B729676A6 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		F781B24FD7A4799D64DBEBF3 /* Externals */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Externals;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		FA996016018571B5FCBA0BCA /* toefl-gemini_iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CBCB1E5DD4B2FB889EBB4A8A /* Build configuration list for PBXNativeTarget "toefl-gemini_iOS" */;
+			buildPhases = (
+				A1FD86772362006F073B519A /* Build Rust Code */,
+				B079193D51BEE1A48D1B1C50 /* Sources */,
+				8064670A7F151CAB9EC961CF /* Resources */,
+				8F8BAE5FD2A43A1FD2825EE3 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "toefl-gemini_iOS";
+			packageProductDependencies = (
+			);
+			productName = "toefl-gemini_iOS";
+			productReference = 944019BA7E4FA2D160E82F7A /* toefl-gemini_iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		3465997E7C87FC5436BB00E0 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = 1CBEC77C88F46362049B7E52 /* Build configuration list for PBXProject "toefl-gemini" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = CB22D529A6350579401D4423;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = C09EBFA5F1C9485B729676A6 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				FA996016018571B5FCBA0BCA /* toefl-gemini_iOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8064670A7F151CAB9EC961CF /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				71B425107A1F6ED278A1A493 /* Assets.xcassets in Resources */,
+				F5D8137E3438F78257589BB3 /* LaunchScreen.storyboard in Resources */,
+				4F21532F657953F46D35B15C /* assets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A1FD86772362006F073B519A /* Build Rust Code */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust Code";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/Externals/x86_64/${CONFIGURATION}/libapp.a",
+				"$(SRCROOT)/Externals/arm64/${CONFIGURATION}/libapp.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "pnpm tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		B079193D51BEE1A48D1B1C50 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F4AC9949B6C8458DDC855645 /* main.mm in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		354442AE97D430B6FBADE7C7 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "toefl-gemini_iOS/toefl-gemini_iOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "toefl-gemini_iOS/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.openai.toefl-gemini";
+				PRODUCT_NAME = "AI TOEFL Trainer";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = debug;
+		};
+		85CCF399FB0F553A1BE66BD8 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = debug;
+		};
+		915CE9C69227ED694C9B6C4A /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = release;
+		};
+		930783C39739D6CBEB57B759 /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "toefl-gemini_iOS/toefl-gemini_iOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "toefl-gemini_iOS/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.openai.toefl-gemini";
+				PRODUCT_NAME = "AI TOEFL Trainer";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1CBEC77C88F46362049B7E52 /* Build configuration list for PBXProject "toefl-gemini" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				85CCF399FB0F553A1BE66BD8 /* debug */,
+				915CE9C69227ED694C9B6C4A /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+		CBCB1E5DD4B2FB889EBB4A8A /* Build configuration list for PBXNativeTarget "toefl-gemini_iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				354442AE97D430B6FBADE7C7 /* debug */,
+				930783C39739D6CBEB57B759 /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 3465997E7C87FC5436BB00E0 /* Project object */;
+}

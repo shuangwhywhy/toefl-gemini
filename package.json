@@ -5,13 +5,19 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "web:dev": "vite --host 0.0.0.0 --port 4173",
     "build": "tsc && vite build",
+    "web:build": "tsc && vite build",
     "preview": "vite preview",
+    "web:preview": "vite preview --host 0.0.0.0 --port 4173",
     "test": "vitest run",
     "test:watch": "vitest",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "ios:init": "tauri ios init --ci --skip-targets-install",
+    "ios:dev": "tauri ios dev",
+    "ios:build": "tauri ios build"
   },
   "dependencies": {
     "@google/genai": "^1.16.0",
