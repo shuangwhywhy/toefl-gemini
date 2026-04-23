@@ -11,6 +11,23 @@ import type {
   RoutePolicy
 } from './types';
 
+interface QueueSubscriber<T> {
+  id: string;
+  scopeId: string;
+  supersedeKey?: string;
+  resolve: (value: T) => void;
+  reject: (error: unknown) => void;
+  settled: boolean;
+}
+
+interface SharedRequestState<T> {
+  coalesceKey: string;
+  bucketKey: string;
+  status: 'pending' | 'in-flight' | 'settled';
+  entry: QueueEntry<T>;
+  subscribers: QueueSubscriber<T>[];
+}
+
 interface QueueEntry<T> {
   id: string;
   seq: number;
@@ -18,8 +35,7 @@ interface QueueEntry<T> {
   bucketKey: string;
   route: LLMRouteKey;
   policy: RoutePolicy;
-  resolve: (value: T) => void;
-  reject: (error: unknown) => void;
+  coalesceKey: string;
 }
 
 interface BucketState {
@@ -67,6 +83,8 @@ const isBusyOrRateLimitedError = (error: unknown) => {
 
 const buildBucketKey = (route: LLMRouteKey) =>
   `${route.platform}:${route.service}:${route.model}`;
+const buildCoalesceKey = (route: LLMRouteKey, businessKey: string) =>
+  `${buildBucketKey(route)}:${businessKey}`;
 
 const generateId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -84,6 +102,7 @@ const clonePersistedState = (buckets: Map<string, BucketState>) => {
 
 class LLMClient {
   private readonly buckets = new Map<string, BucketState>();
+  private readonly sharedRequests = new Map<string, SharedRequestState<unknown>>();
   private readonly readyPromise: Promise<void>;
   private readonly ai: GoogleGenAI;
   private wakeTimer: number | null = null;
@@ -110,37 +129,56 @@ class LLMClient {
     };
     const policy = resolveRoutePolicy(route);
     const bucketKey = buildBucketKey(route);
+    const coalesceKey = buildCoalesceKey(route, request.businessKey);
     const bucket = this.getOrCreateBucket(bucketKey, route, policy);
 
-    this.supersedePending(request.scopeId, request.supersedeKey);
+    this.supersedePending(request.scopeId, request.supersedeKey, coalesceKey);
 
-    return await new Promise<T>((resolve, reject) => {
-      const entry: QueueEntry<T> = {
-        id: generateId(),
-        seq: ++this.seq,
-        request: { ...request, route },
-        bucketKey,
-        route,
-        policy,
-        resolve,
-        reject
-      };
-      bucket.pending.push(entry as QueueEntry<unknown>);
-      this.processQueues();
-    });
+    const activeShared = this.sharedRequests.get(coalesceKey) as
+      | SharedRequestState<T>
+      | undefined;
+    if (activeShared && activeShared.status !== 'settled') {
+      return await this.attachSubscriber(activeShared, request);
+    }
+
+    const subscriberBundle = this.createSubscriber<T>(request);
+    const entry: QueueEntry<T> = {
+      id: generateId(),
+      seq: ++this.seq,
+      request: { ...request, route },
+      bucketKey,
+      route,
+      policy,
+      coalesceKey
+    };
+    const shared: SharedRequestState<T> = {
+      coalesceKey,
+      bucketKey,
+      status: 'pending',
+      entry,
+      subscribers: [subscriberBundle.subscriber]
+    };
+
+    this.sharedRequests.set(coalesceKey, shared as SharedRequestState<unknown>);
+    bucket.pending.push(entry as QueueEntry<unknown>);
+    this.processQueues();
+
+    return await subscriberBundle.promise;
   }
 
   cancelPendingByScope(scopeId: string) {
-    for (const bucket of this.buckets.values()) {
-      const survivors: QueueEntry<unknown>[] = [];
-      for (const entry of bucket.pending) {
-        if (entry.request.scopeId === scopeId) {
-          entry.reject(new ScopeCancelledError());
+    const cancellationError = new ScopeCancelledError();
+    for (const shared of this.sharedRequests.values()) {
+      const remainingSubscribers: QueueSubscriber<unknown>[] = [];
+      for (const subscriber of shared.subscribers) {
+        if (subscriber.scopeId === scopeId) {
+          this.rejectSubscriber(subscriber, cancellationError);
         } else {
-          survivors.push(entry);
+          remainingSubscribers.push(subscriber);
         }
       }
-      bucket.pending = survivors;
+      shared.subscribers = remainingSubscribers;
+      this.cleanupOrphanedPendingShared(shared);
     }
     this.processQueues();
   }
@@ -190,23 +228,117 @@ class LLMClient {
     return bucket;
   }
 
-  private supersedePending(scopeId: string, supersedeKey?: string) {
+  private createSubscriber<T>(request: LLMRequest<T>) {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return {
+      promise,
+      subscriber: {
+        id: generateId(),
+        scopeId: request.scopeId,
+        supersedeKey: request.supersedeKey,
+        resolve,
+        reject,
+        settled: false
+      } as QueueSubscriber<T>
+    };
+  }
+
+  private attachSubscriber<T>(
+    shared: SharedRequestState<T>,
+    request: LLMRequest<T>
+  ) {
+    const subscriberBundle = this.createSubscriber(request);
+    shared.subscribers.push(subscriberBundle.subscriber);
+    return subscriberBundle.promise;
+  }
+
+  private supersedePending(
+    scopeId: string,
+    supersedeKey: string | undefined,
+    nextCoalesceKey: string
+  ) {
     if (!supersedeKey) {
       return;
     }
-    for (const bucket of this.buckets.values()) {
-      const survivors: QueueEntry<unknown>[] = [];
-      for (const entry of bucket.pending) {
+
+    const supersededError = new SupersededError();
+    for (const shared of this.sharedRequests.values()) {
+      if (shared.status !== 'pending' || shared.coalesceKey === nextCoalesceKey) {
+        continue;
+      }
+
+      const remainingSubscribers: QueueSubscriber<unknown>[] = [];
+      for (const subscriber of shared.subscribers) {
         if (
-          entry.request.scopeId === scopeId &&
-          entry.request.supersedeKey === supersedeKey
+          subscriber.scopeId === scopeId &&
+          subscriber.supersedeKey === supersedeKey
         ) {
-          entry.reject(new SupersededError());
+          this.rejectSubscriber(subscriber, supersededError);
         } else {
-          survivors.push(entry);
+          remainingSubscribers.push(subscriber);
         }
       }
-      bucket.pending = survivors;
+      shared.subscribers = remainingSubscribers;
+      this.cleanupOrphanedPendingShared(shared);
+    }
+  }
+
+  private resolveSubscriber<T>(subscriber: QueueSubscriber<T>, value: T) {
+    if (subscriber.settled) {
+      return;
+    }
+    subscriber.settled = true;
+    subscriber.resolve(value);
+  }
+
+  private rejectSubscriber(
+    subscriber: QueueSubscriber<unknown>,
+    error: unknown
+  ) {
+    if (subscriber.settled) {
+      return;
+    }
+    subscriber.settled = true;
+    subscriber.reject(error);
+  }
+
+  private cleanupOrphanedPendingShared(shared: SharedRequestState<unknown>) {
+    if (shared.status !== 'pending' || shared.subscribers.length > 0) {
+      return;
+    }
+
+    const bucket = this.buckets.get(shared.bucketKey);
+    if (bucket) {
+      bucket.pending = bucket.pending.filter((entry) => entry.id !== shared.entry.id);
+    }
+    shared.status = 'settled';
+    this.sharedRequests.delete(shared.coalesceKey);
+  }
+
+  private settleShared<T>(
+    shared: SharedRequestState<T>,
+    result: { ok: true; value: T } | { ok: false; error: unknown }
+  ) {
+    if (shared.status === 'settled') {
+      return;
+    }
+
+    shared.status = 'settled';
+    this.sharedRequests.delete(shared.coalesceKey);
+    const subscribers = [...shared.subscribers];
+    shared.subscribers = [];
+
+    for (const subscriber of subscribers) {
+      if (result.ok === true) {
+        this.resolveSubscriber(subscriber, result.value);
+      } else {
+        this.rejectSubscriber(subscriber, result.error);
+      }
     }
   }
 
@@ -360,12 +492,28 @@ class LLMClient {
 
   private startEntry(bucket: BucketState, entry: QueueEntry<unknown>) {
     bucket.pending.shift();
+    const shared = this.sharedRequests.get(entry.coalesceKey);
+    if (!shared || shared.status !== 'pending') {
+      this.processQueues();
+      return;
+    }
+    if (shared.subscribers.length === 0) {
+      this.cleanupOrphanedPendingShared(shared);
+      this.processQueues();
+      return;
+    }
+
+    shared.status = 'in-flight';
     bucket.inFlightCount += 1;
     this.recordStarted(bucket);
 
     void this.executeEntry(bucket, entry)
-      .then((value) => entry.resolve(value))
-      .catch((error) => entry.reject(error))
+      .then((value) => {
+        this.settleShared(shared, { ok: true, value });
+      })
+      .catch((error) => {
+        this.settleShared(shared, { ok: false, error });
+      })
       .finally(() => {
         bucket.inFlightCount = Math.max(0, bucket.inFlightCount - 1);
         this.processQueues();

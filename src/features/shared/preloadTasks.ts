@@ -10,6 +10,8 @@ import {
   getLengthDescription
 } from './trainingUtils';
 
+export const DEFAULT_SHADOW_VOICE = 'Aoede';
+
 export const queueShadowPreload = (
   lengthLevel: number,
   learningFocus: string,
@@ -94,6 +96,7 @@ export const queueShadowPreload = (
       PreloadPipeline.cache.shadow = {
         text: sentence,
         audioUrl,
+        voice,
         lengthLevel: safeLengthLvl,
         difficultyLevel: safeDiffLvl,
         learningFocus

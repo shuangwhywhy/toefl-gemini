@@ -48,6 +48,7 @@ export interface LLMRequest<T> {
   route: LLMRouteKey;
   scopeId: string;
   supersedeKey?: string;
+  businessKey: string;
   payload: LLMPayload;
   parser: (raw: unknown) => Promise<T> | T;
   meta?: LLMRequestMeta;

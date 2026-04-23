@@ -13,6 +13,7 @@ import {
 import { ShadowingModule } from '../features/shadowing/ShadowingModule';
 import { InterviewModule } from '../features/interview/InterviewModule';
 import {
+  DEFAULT_SHADOW_VOICE,
   queueDictationPreload,
   queueInterviewPreload,
   queueListeningPreload,
@@ -111,7 +112,7 @@ export default function ToeflTrainerApp() {
 
     const timer = window.setTimeout(() => {
       try {
-        queueShadowPreload(3, 'general daily English', 5, 'Aoede');
+        queueShadowPreload(3, 'general daily English', 5, DEFAULT_SHADOW_VOICE);
       } catch (error) {}
       try {
         queueInterviewPreload('Puck');

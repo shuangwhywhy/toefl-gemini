@@ -10,6 +10,10 @@ import {
   JSONExtractionError,
   LLMFormatError
 } from './errors';
+import {
+  createBusinessKey,
+  hashBlobForBusinessKey
+} from './businessKey';
 import { getLLMClient } from './client';
 
 const createAbortError = () => {
@@ -167,6 +171,7 @@ interface SharedRequestOptions {
   supersedeKey?: string;
   service?: string;
   model?: string;
+  businessContext?: unknown;
 }
 
 const ensureScope = (options?: SharedRequestOptions) => {
@@ -196,6 +201,9 @@ export const fetchGeminiText = async (
   const parts = Array.isArray(promptOrParts)
     ? promptOrParts
     : [{ text: promptOrParts }];
+  const validatorSignature = validator
+    ? String(validator).replace(/\s+/g, ' ').trim()
+    : null;
 
   const systemInstruction = {
     parts: [
@@ -208,6 +216,16 @@ export const fetchGeminiText = async (
   };
 
   const runAttempt = async (fixMode = false) => {
+    const businessKey = createBusinessKey(
+      `generate-content:${fixMode ? 'evaluation' : primaryService}:${model}`,
+      requestOptions?.businessContext ?? {
+        contents: parts,
+        temperature: fixMode ? 0 : temperature,
+        maxOutputTokens,
+        schema,
+        validator: validatorSignature
+      }
+    );
     const promise = getLLMClient().request({
       route: {
         platform: GEMINI_PLATFORM,
@@ -216,6 +234,7 @@ export const fetchGeminiText = async (
       },
       scopeId,
       supersedeKey,
+      businessKey,
       payload: {
         kind: 'generate-content',
         params: {
@@ -259,6 +278,11 @@ export const fetchGeminiText = async (
       },
       scopeId,
       supersedeKey,
+      businessKey: createBusinessKey(`json-fixer:evaluation:${model}`, {
+        rawText,
+        schema,
+        maxOutputTokens
+      }),
       payload: {
         kind: 'generate-content',
         params: {
@@ -317,6 +341,11 @@ export const fetchNeuralTTS = async (
     },
     scopeId,
     supersedeKey,
+    businessKey: createBusinessKey(`tts-single:${TTS_MODEL}`, {
+      voiceName,
+      textToSpeak,
+      responseModalities: ['AUDIO']
+    }),
     payload: {
       kind: 'generate-content',
       params: {
@@ -369,6 +398,14 @@ export const fetchConversationTTS = async (
     },
     scopeId,
     supersedeKey,
+    businessKey: createBusinessKey(`tts-multi:${TTS_MODEL}`, {
+      transcript,
+      responseModalities: ['AUDIO'],
+      speakers: [
+        { speaker: 'Student', voiceName: 'Puck' },
+        { speaker: 'Professor', voiceName: 'Aoede' }
+      ]
+    }),
     payload: {
       kind: 'generate-content',
       params: {
@@ -438,6 +475,12 @@ export const requestChatCompletion = async ({
     },
     scopeId,
     supersedeKey,
+    businessKey: createBusinessKey(`chat:${TEXT_MODEL}`, {
+      contents,
+      systemInstruction,
+      temperature,
+      maxOutputTokens
+    }),
     payload: {
       kind: 'generate-content',
       params: {
@@ -476,6 +519,7 @@ export const requestTranscription = async ({
   scopeId: string;
   supersedeKey?: string;
 }) => {
+  const audioDigest = await hashBlobForBusinessKey(audioBlob);
   const data = await blobToBase64(audioBlob);
   const schema = {
     type: 'OBJECT',
@@ -512,7 +556,13 @@ export const requestTranscription = async ({
       scopeId,
       supersedeKey,
       service: 'transcription',
-      model: TRANSCRIBE_MODEL
+      model: TRANSCRIBE_MODEL,
+      businessContext: {
+        prompt:
+          prompt ??
+          'Transcribe this audio faithfully into plain text. Return JSON: {"transcript":"..."}',
+        audioDigest
+      }
     }
   );
 

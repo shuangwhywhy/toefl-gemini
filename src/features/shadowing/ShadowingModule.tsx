@@ -23,7 +23,10 @@ import {
   getDifficultyDescription,
   getLengthDescription
 } from '../shared/trainingUtils';
-import { queueShadowPreload } from '../shared/preloadTasks';
+import {
+  DEFAULT_SHADOW_VOICE,
+  queueShadowPreload
+} from '../shared/preloadTasks';
 import { playBeep } from '../../services/audio/playback';
 import {
   fetchGeminiText,
@@ -48,7 +51,7 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
     '你好！我是你的专属口语私教。开始录音练习后，我将聆听你的真实发音并进行多维度诊断。你可以随时在这里向我提问！'
   );
 
-  const [selectedVoice, setSelectedVoice] = useState('Aoede');
+  const [selectedVoice, setSelectedVoice] = useState(DEFAULT_SHADOW_VOICE);
   const [rate, setRate] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -124,8 +127,12 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
       ) {
         const preloaded = PreloadPipeline.cache.shadow;
         setText(preloaded.text);
-        setTtsAudioUrl(preloaded.audioUrl);
-        audioCacheRef.current[selectedVoice] = preloaded.audioUrl;
+        if (selectedVoice === preloaded.voice) {
+          setTtsAudioUrl(preloaded.audioUrl);
+          audioCacheRef.current[preloaded.voice] = preloaded.audioUrl;
+        } else {
+          setTtsAudioUrl('');
+        }
         currentSentenceParams.current = {
           lengthLevel,
           difficultyLevel,
@@ -197,19 +204,19 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
     let idleTimer: number | null = null;
     if (
       !isRecording &&
-      !hasRecordedThisSentenceRef.current &&
-      !isGenerating &&
-      !isEvaluating
-    ) {
-      idleTimer = window.setTimeout(() => {
-        queueShadowPreload(
-          lengthLevel,
-          learningFocus,
-          difficultyLevel,
-          selectedVoice
-        );
-      }, 2000);
-    }
+        !hasRecordedThisSentenceRef.current &&
+        !isGenerating &&
+        !isEvaluating
+      ) {
+        idleTimer = window.setTimeout(() => {
+          queueShadowPreload(
+            lengthLevel,
+            learningFocus,
+            difficultyLevel,
+            DEFAULT_SHADOW_VOICE
+          );
+        }, 2000);
+      }
 
     return () => {
       if (idleTimer) {
@@ -224,7 +231,6 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
     lengthLevel,
     learningFocus,
     difficultyLevel,
-    selectedVoice,
     isDbLoaded
   ]);
 
@@ -324,8 +330,8 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
       window.setTimeout(() => {
         setText(cache.text);
         audioCacheRef.current = {};
-        if (cache.audioUrl) {
-          audioCacheRef.current[selectedVoice] = cache.audioUrl;
+        if (cache.audioUrl && selectedVoice === cache.voice) {
+          audioCacheRef.current[cache.voice] = cache.audioUrl;
           setTtsAudioUrl(cache.audioUrl);
           setIsTtsLoading(false);
         } else {
@@ -839,7 +845,12 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
       if (nextFocus !== learningFocus) {
         setLearningFocus(nextFocus);
       }
-      queueShadowPreload(nextLengthLevel, nextFocus, difficultyLevel, selectedVoice);
+      queueShadowPreload(
+        nextLengthLevel,
+        nextFocus,
+        difficultyLevel,
+        DEFAULT_SHADOW_VOICE
+      );
     }
   };
 
