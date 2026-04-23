@@ -9,6 +9,11 @@ import {
     requestChatCompletion,
     requestTranscription
 } from '../services/llm/helpers';
+import { classifyLLMFailure } from '../services/llm/errors';
+import {
+    runBoundedGeneration,
+    toRetryFailure
+} from '../services/llm/retry';
 import { PreloadPipeline } from '../services/preload/orchestrator';
 import { useRequestScope } from '../services/requestScope';
 import { DBUtils } from '../services/storage/db';
@@ -47,18 +52,37 @@ const getDifficultyDescription = (level) => {
     return descriptions[Math.max(0, Math.min(9, level - 1))];
 };
 
+const buildRetryAwareMessage = (fallbackMessage, error) => {
+    const retryError = toRetryFailure(error);
+    const baseMessage = retryError.failure.userMessage || fallbackMessage;
+    if (retryError.retries === 0) {
+        return baseMessage;
+    }
+
+    const normalized = baseMessage
+        .replace(/请稍后(?:调整后)?重试。?$/, '')
+        .replace(/。$/, '');
+    return `${normalized}。系统已自动重试 ${retryError.retries} 次，请稍后重试。`;
+};
+
 const queueShadowPreload = (lengthLevel, learningFocus, difficultyLevel, voice) => {
-    PreloadPipeline.enqueue('shadow_preload', async (signal) => {
+    const safeLengthLvl = parseInt(lengthLevel) || 3;
+    const safeDiffLvl = parseInt(difficultyLevel) || 5;
+    const fingerprint = JSON.stringify({
+        lengthLevel: safeLengthLvl,
+        learningFocus,
+        difficultyLevel: safeDiffLvl,
+        voice
+    });
+
+    PreloadPipeline.enqueue('shadow_preload', fingerprint, async (signal) => {
         const scopeId = 'preload:shadow';
         if (PreloadPipeline.cache.shadow) {
             const c = PreloadPipeline.cache.shadow;
-            if (c.lengthLevel === lengthLevel && c.learningFocus === learningFocus && c.difficultyLevel === difficultyLevel) return;
+            if (c.lengthLevel === safeLengthLvl && c.learningFocus === learningFocus && c.difficultyLevel === safeDiffLvl) return;
         }
 
         try {
-            const safeLengthLvl = parseInt(lengthLevel) || 3;
-            const safeDiffLvl = parseInt(difficultyLevel) || 5;
-
             const lengthDesc = getLengthDescription(safeLengthLvl);
             const diffDesc = getDifficultyDescription(safeDiffLvl);
 
@@ -115,7 +139,8 @@ const queueShadowPreload = (lengthLevel, learningFocus, difficultyLevel, voice) 
 };
 
 const queueInterviewPreload = (voice) => {
-    PreloadPipeline.enqueue('interview_preload', async (signal) => {
+    const fingerprint = JSON.stringify({ voice });
+    PreloadPipeline.enqueue('interview_preload', fingerprint, async (signal) => {
         const scopeId = 'preload:interview';
         if (PreloadPipeline.cache.interview) return;
 
@@ -157,7 +182,7 @@ const queueInterviewPreload = (voice) => {
 };
 
 const queueListeningPreload = () => {
-    PreloadPipeline.enqueue('listening_preload', async (signal) => {
+    PreloadPipeline.enqueue('listening_preload', 'default', async (signal) => {
         const scopeId = 'preload:listening';
         if (PreloadPipeline.cache.listening) return;
         try {
@@ -205,7 +230,7 @@ const queueListeningPreload = () => {
 };
 
 const queueDictationPreload = () => {
-    PreloadPipeline.enqueue('dictation_preload', async (signal) => {
+    PreloadPipeline.enqueue('dictation_preload', 'default', async (signal) => {
         const scopeId = 'preload:dictation';
         if (PreloadPipeline.cache.dictation) return;
         try {
@@ -961,8 +986,8 @@ function ListeningMenuModule({ onNavigate, onBack, preloadStatus }) {
 // ==========================================
 // 核心模块：文章听写 (Article Dictation)
 // ==========================================
-function ListeningDictationModule({ onBack }) {
-    const [status, setStatus] = useState<string>('setup');
+export function ListeningDictationModule({ onBack }) {
+    const [status, setStatus] = useState<string>('generating');
     const [data, setData] = useState(null);
     const [userInputs, setUserInputs] = useState([]);
     const [isEvaluated, setIsEvaluated] = useState(false);
@@ -972,18 +997,8 @@ function ListeningDictationModule({ onBack }) {
     const [progress, setProgress] = useState(0);
     const audioRef = useRef(null);
     const inputRefs = useRef([]);
+    const initialLoadAttemptedRef = useRef(false);
     const requestScope = useRequestScope('dictation');
-
-    useEffect(() => {
-        if (status === 'setup') {
-            if (PreloadPipeline.cache.dictation) {
-                initSession(PreloadPipeline.cache.dictation);
-                PreloadPipeline.cache.dictation = null;
-            } else {
-                generateDictation();
-            }
-        }
-    }, [status]);
 
     const initSession = (dictationData) => {
         setData(dictationData);
@@ -993,39 +1008,67 @@ function ListeningDictationModule({ onBack }) {
         setStatus('practicing');
     };
 
+    const consumePreloadedDictation = () => {
+        if (!PreloadPipeline.cache.dictation) {
+            return false;
+        }
+        initSession(PreloadPipeline.cache.dictation);
+        PreloadPipeline.cache.dictation = null;
+        return true;
+    };
+
+    useEffect(() => {
+        if (initialLoadAttemptedRef.current) {
+            return;
+        }
+        initialLoadAttemptedRef.current = true;
+        void generateDictation();
+    }, []);
+
     const generateDictation = async () => {
-        const session = requestScope.beginSession();
+        const session = requestScope.invalidateSession();
+        setApiError('');
+        if (consumePreloadedDictation()) {
+            return;
+        }
         PreloadPipeline.abortCurrent();
         setStatus('generating');
-        setApiError('');
         try {
-            const prompt = `Generate an 80-100 word academic lecture passage on a random advanced topic (e.g. biology, history, astronomy). 
+            const { value } = await runBoundedGeneration({
+                classify: classifyLLMFailure,
+                maxRetries: 2,
+                delayMs: 1000,
+                action: async () => {
+                    const prompt = `Generate an 80-100 word academic lecture passage on a random advanced topic (e.g. biology, history, astronomy). 
       Return JSON: {"topic": "...", "text": "..."}`;
 
-            const schema = {
-                type: "OBJECT",
-                properties: {
-                    topic: { type: "STRING" },
-                    text: { type: "STRING" }
-                },
-                required: ["topic", "text"]
-            };
+                    const schema = {
+                        type: "OBJECT",
+                        properties: {
+                            topic: { type: "STRING" },
+                            text: { type: "STRING" }
+                        },
+                        required: ["topic", "text"]
+                    };
 
-            const result = await fetchGeminiText(prompt, 0.9, 2000, schema, null, null, {
-                scopeId: requestScope.scopeId,
-                supersedeKey: 'dictation:generate'
-            });
-            const tokens = processDictationText(result.text);
-            const audio = await fetchNeuralTTS("Charon", result.text, null, {
-                scopeId: requestScope.scopeId,
-                supersedeKey: 'dictation:generate-tts'
+                    const result = await fetchGeminiText(prompt, 0.9, 2000, schema, null, null, {
+                        scopeId: requestScope.scopeId,
+                        supersedeKey: 'dictation:generate'
+                    });
+                    const tokens = processDictationText(result.text);
+                    const audio = await fetchNeuralTTS("Charon", result.text, null, {
+                        scopeId: requestScope.scopeId,
+                        supersedeKey: 'dictation:generate-tts'
+                    });
+                    return { ...result, tokens, audioUrl: audio };
+                }
             });
             if (!requestScope.isSessionCurrent(session)) return;
-            initSession({ ...result, tokens, audioUrl: audio });
+            initSession(value);
         } catch (e) {
             if (!requestScope.isSessionCurrent(session)) return;
-            setApiError("生成内容失败，请检查网络后重试。");
-            setStatus('setup');
+            setApiError(buildRetryAwareMessage("生成内容失败，请检查网络后重试。", e));
+            setStatus('generation_failed');
         }
     };
 
@@ -1111,7 +1154,7 @@ function ListeningDictationModule({ onBack }) {
                             <div className="text-[10px] text-slate-400 flex items-center bg-white px-2 py-1 rounded-full border border-slate-100 shadow-sm">
                                 <Keyboard className="w-3 h-3 mr-1" /> 空格/Tab: 下一格 | 方向键: 快速跳转
                             </div>
-                            <button onClick={isEvaluated ? () => setStatus('setup') : checkResults} className={`px-5 py-2 rounded-full font-bold text-sm shadow-sm transition-all ${isEvaluated ? 'bg-slate-800 text-white' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
+                            <button onClick={isEvaluated ? () => { void generateDictation(); } : checkResults} className={`px-5 py-2 rounded-full font-bold text-sm shadow-sm transition-all ${isEvaluated ? 'bg-slate-800 text-white' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
                                 {isEvaluated ? "再练一篇" : "完成校验"}
                             </button>
                         </div>
@@ -1122,6 +1165,16 @@ function ListeningDictationModule({ onBack }) {
                     <div className="bg-white rounded-2xl shadow-sm p-16 text-center">
                         <RefreshCw className="w-10 h-10 text-indigo-500 animate-spin mx-auto mb-4" />
                         <p className="text-slate-600 font-medium">考官正在为您准备学术短文...</p>
+                    </div>
+                )}
+
+                {status === 'generation_failed' && (
+                    <div className="bg-white rounded-2xl shadow-sm p-16 text-center">
+                        <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto mb-4" />
+                        <p className="text-slate-700 font-medium mb-6">学术短文暂时生成失败，请稍后重试。</p>
+                        <button onClick={() => { void generateDictation(); }} className="px-8 py-3 bg-slate-800 hover:bg-slate-900 text-white rounded-full font-bold shadow-lg transition-transform hover:scale-105">
+                            重新生成
+                        </button>
                     </div>
                 )}
 
@@ -1233,8 +1286,8 @@ function ListeningDictationModule({ onBack }) {
 // ==========================================
 // 核心练习模块
 // ==========================================
-function ListeningPracticeModule({ onBack }) {
-    const [status, setStatus] = useState<string>('setup');
+export function ListeningPracticeModule({ onBack }) {
+    const [status, setStatus] = useState<string>('generating');
     const [conversationData, setConversationData] = useState(null);
     const [notes, setNotes] = useState({ who: '', problem: '', reason: '', solution: '', nextStep: '' });
     const [evaluation, setEvaluation] = useState(null);
@@ -1243,67 +1296,95 @@ function ListeningPracticeModule({ onBack }) {
     const [isPlaying, setIsPlaying] = useState(false);
     const [progress, setProgress] = useState(0);
     const audioRef = useRef(null);
+    const initialLoadAttemptedRef = useRef(false);
     const requestScope = useRequestScope('listening-practice');
 
-    useEffect(() => {
-        if (status === 'setup') {
-            if (PreloadPipeline.cache.listening) {
-                setConversationData(PreloadPipeline.cache.listening);
-                PreloadPipeline.cache.listening = null;
-                setNotes({ who: '', problem: '', reason: '', solution: '', nextStep: '' });
-                setStatus('ready');
-            } else {
-                generateConversation();
-            }
-        }
-    }, [status]);
+    const initConversation = (nextConversationData) => {
+        setConversationData(nextConversationData);
+        setNotes({ who: '', problem: '', reason: '', solution: '', nextStep: '' });
+        setEvaluation(null);
+        setStatus('ready');
+    };
 
-    const generateConversation = async () => {
-        const session = requestScope.beginSession();
+    const consumePreloadedConversation = () => {
+        if (!PreloadPipeline.cache.listening) {
+            return false;
+        }
+        initConversation(PreloadPipeline.cache.listening);
+        PreloadPipeline.cache.listening = null;
+        return true;
+    };
+
+    useEffect(() => {
+        if (initialLoadAttemptedRef.current) {
+            return;
+        }
+        initialLoadAttemptedRef.current = true;
+        void generateConversation();
+    }, []);
+
+    const generateConversation = async ({ queueNextAfterSuccess = false } = {}) => {
+        const session = requestScope.invalidateSession();
+        setApiError('');
+        if (consumePreloadedConversation()) {
+            if (queueNextAfterSuccess) {
+                queueListeningPreload();
+            }
+            return;
+        }
         PreloadPipeline.abortCurrent();
         setStatus('generating');
-        setApiError('');
         try {
-            const prompt = `Generate a 180-250 word TOEFL campus conversation. Format exactly with 'Student:' and 'Professor:'.
+            const { value } = await runBoundedGeneration({
+                classify: classifyLLMFailure,
+                maxRetries: 2,
+                delayMs: 1000,
+                action: async () => {
+                    const prompt = `Generate a 180-250 word TOEFL campus conversation. Format exactly with 'Student:' and 'Professor:'.
       Topic: A random specific campus issue.
       Return JSON: {"topic": "...", "transcript": "...", "truth": {"who": "...", "problem": "...", "reason": "...", "solution": "...", "nextStep": "..."}}`;
 
-            const schema = {
-                type: "OBJECT",
-                properties: {
-                    topic: { type: "STRING" },
-                    transcript: { type: "STRING" },
-                    truth: {
+                    const schema = {
                         type: "OBJECT",
                         properties: {
-                            who: { type: "STRING" }, problem: { type: "STRING" }, reason: { type: "STRING" }, solution: { type: "STRING" }, nextStep: { type: "STRING" }
+                            topic: { type: "STRING" },
+                            transcript: { type: "STRING" },
+                            truth: {
+                                type: "OBJECT",
+                                properties: {
+                                    who: { type: "STRING" }, problem: { type: "STRING" }, reason: { type: "STRING" }, solution: { type: "STRING" }, nextStep: { type: "STRING" }
+                                },
+                                required: ["who", "problem", "reason", "solution", "nextStep"]
+                            }
                         },
-                        required: ["who", "problem", "reason", "solution", "nextStep"]
-                    }
-                },
-                required: ["topic", "transcript", "truth"]
-            };
+                        required: ["topic", "transcript", "truth"]
+                    };
 
-            const data = await fetchGeminiText(prompt, 0.9, 2000, schema, null, null, {
-                scopeId: requestScope.scopeId,
-                supersedeKey: 'listening:generate'
-            });
-            if (!data || !data.transcript) throw new Error("Invalid output format from LLM");
+                    const data = await fetchGeminiText(prompt, 0.9, 2000, schema, null, null, {
+                        scopeId: requestScope.scopeId,
+                        supersedeKey: 'listening:generate'
+                    });
+                    if (!data || !data.transcript) throw new Error("Invalid output format from LLM");
 
-            const audioUrl = await fetchConversationTTS(data.transcript, null, {
-                scopeId: requestScope.scopeId,
-                supersedeKey: 'listening:generate-tts'
+                    const audioUrl = await fetchConversationTTS(data.transcript, null, {
+                        scopeId: requestScope.scopeId,
+                        supersedeKey: 'listening:generate-tts'
+                    });
+                    if (!audioUrl) throw new Error("Audio generation format failed");
+
+                    return { ...data, audioUrl };
+                }
             });
-            if (!audioUrl) throw new Error("Audio generation format failed");
 
             if (!requestScope.isSessionCurrent(session)) return;
-            setConversationData({ ...data, audioUrl });
-            setNotes({ who: '', problem: '', reason: '', solution: '', nextStep: '' });
-            setStatus('ready');
+            initConversation(value);
+            if (queueNextAfterSuccess) {
+                queueListeningPreload();
+            }
         } catch (e) {
             if (!requestScope.isSessionCurrent(session)) return;
-            setApiError(`生成进阶听力材料失败 (${e.message})，请重试。`);
-            setStatus('setup');
+            setApiError(buildRetryAwareMessage("生成进阶听力材料失败，请重试。", e));
+            setStatus('generation_failed');
         }
     };
 
@@ -1313,7 +1394,7 @@ function ListeningPracticeModule({ onBack }) {
             return;
         }
 
-        const session = requestScope.beginSession();
+        const session = requestScope.invalidateSession();
         setStatus('evaluating');
         setApiError('');
         try {
@@ -1359,7 +1440,7 @@ function ListeningPracticeModule({ onBack }) {
             setStatus('result');
         } catch (e) {
             if (!requestScope.isSessionCurrent(session)) return;
-            setApiError(`评分分析失败 (${e.message})，请重试。`);
+            setApiError(buildRetryAwareMessage("评分分析失败，请重试。", e));
             setStatus('practicing');
         }
     };
@@ -1407,6 +1488,16 @@ function ListeningPracticeModule({ onBack }) {
                     <div className="bg-white rounded-2xl shadow-sm p-16 text-center">
                         <RefreshCw className="w-10 h-10 text-emerald-500 animate-spin mx-auto mb-4" />
                         <p className="text-slate-600 font-medium">考官正在为您准备进阶对话音频...</p>
+                    </div>
+                )}
+
+                {status === 'generation_failed' && (
+                    <div className="bg-white rounded-2xl shadow-sm p-16 text-center">
+                        <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto mb-4" />
+                        <p className="text-slate-700 font-medium mb-6">进阶对话材料暂时生成失败，请稍后重试。</p>
+                        <button onClick={() => { void generateConversation(); }} className="px-8 py-3 bg-slate-800 hover:bg-slate-900 text-white rounded-full font-bold shadow-lg transition-transform hover:scale-105">
+                            重新生成
+                        </button>
                     </div>
                 )}
 
@@ -1506,7 +1597,7 @@ function ListeningPracticeModule({ onBack }) {
                                         </button>
                                     )}
                                     {status === 'result' && (
-                                        <button onClick={() => { setStatus('setup'); queueListeningPreload(); }} className="w-full py-4 mt-4 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold shadow-lg transition-colors">
+                                        <button onClick={() => { void generateConversation({ queueNextAfterSuccess: true }); }} className="w-full py-4 mt-4 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold shadow-lg transition-colors">
                                             进入下一篇 (Next Conversation)
                                         </button>
                                     )}
@@ -2339,7 +2430,7 @@ function ShadowingModule({ onBack }) {
 // ==========================================
 // 模块 2: 模拟面试 (Take an Interview)
 // ==========================================
-function InterviewModule({ onBack }) {
+export function InterviewModule({ onBack }) {
     const [status, setStatus] = useState<string>('setup');
     const [interviewData, setInterviewData] = useState(null);
     const [currentQIndex, setCurrentQIndex] = useState(0);
@@ -2384,50 +2475,69 @@ function InterviewModule({ onBack }) {
         return () => { clearInterval(timerIntervalRef.current); };
     }, []);
 
+    const initInterviewSession = (nextInterviewData) => {
+        setInterviewData(nextInterviewData);
+        setUserAnswers([]);
+        setCurrentQIndex(0);
+        setShowTextState([false, false, false, false]);
+        setFinalEvaluation(null);
+        setAudioContextParts([]);
+        setCurrentTranscript('');
+        setTimer(0);
+        timerRef.current = 0;
+        setStatus('ready');
+    };
+
     const generateInterview = async () => {
-        const session = requestScope.beginSession();
+        const session = requestScope.invalidateSession();
         PreloadPipeline.abortCurrent();
         setApiError('');
 
         if (PreloadPipeline.cache.interview) {
-            setInterviewData(PreloadPipeline.cache.interview);
+            initInterviewSession(PreloadPipeline.cache.interview);
             PreloadPipeline.cache.interview = null;
-            setUserAnswers([]); setCurrentQIndex(0); setShowTextState([false, false, false, false]); setStatus('ready');
             return;
         }
 
         setStatus('generating');
         try {
-            const prompt = `Generate a 4-question TOEFL mock interview on a random specific topic. 
+            const { value } = await runBoundedGeneration({
+                classify: classifyLLMFailure,
+                maxRetries: 2,
+                delayMs: 1000,
+                action: async () => {
+                    const prompt = `Generate a 4-question TOEFL mock interview on a random specific topic. 
       Progression: Q1(Personal experience), Q2(Opinion/Choice), Q3(Broader social/campus impact), Q4(Complex trade-offs/Future prediction). 
       Return JSON: {"topic": "...", "questions": ["...", "...", "...", "..."]}`;
 
-            const schema = {
-                type: "OBJECT",
-                properties: {
-                    topic: { type: "STRING" },
-                    questions: { type: "ARRAY", items: { type: "STRING" } }
-                },
-                required: ["topic", "questions"]
-            };
+                    const schema = {
+                        type: "OBJECT",
+                        properties: {
+                            topic: { type: "STRING" },
+                            questions: { type: "ARRAY", items: { type: "STRING" } }
+                        },
+                        required: ["topic", "questions"]
+                    };
 
-            const data = await fetchGeminiText(prompt, 0.9, 800, schema, null, null, {
-                scopeId: requestScope.scopeId,
-                supersedeKey: 'interview:generate'
-            });
+                    const data = await fetchGeminiText(prompt, 0.9, 800, schema, null, null, {
+                        scopeId: requestScope.scopeId,
+                        supersedeKey: 'interview:generate'
+                    });
 
-            const qsWithAudio = data.questions.map(q => ({ text: q, audioUrl: null }));
-            qsWithAudio[0].audioUrl = await fetchNeuralTTS(interviewerVoice, qsWithAudio[0].text, null, {
-                scopeId: requestScope.scopeId,
-                supersedeKey: 'interview:first-tts'
+                    const qsWithAudio = data.questions.map(q => ({ text: q, audioUrl: null }));
+                    qsWithAudio[0].audioUrl = await fetchNeuralTTS(interviewerVoice, qsWithAudio[0].text, null, {
+                        scopeId: requestScope.scopeId,
+                        supersedeKey: 'interview:first-tts'
+                    });
+                    return { topic: data.topic, questions: qsWithAudio };
+                }
             });
 
             if (!requestScope.isSessionCurrent(session)) return;
-            setInterviewData({ topic: data.topic, questions: qsWithAudio });
-            setUserAnswers([]); setCurrentQIndex(0); setShowTextState([false, false, false, false]); setStatus('ready');
+            initInterviewSession(value);
         } catch (e) {
             if (!requestScope.isSessionCurrent(session)) return;
-            setApiError("生成考卷失败，可能是网络原因或频率受限，请稍后重试。");
+            setApiError(buildRetryAwareMessage("生成考卷失败，可能是网络原因或频率受限，请稍后重试。", e));
             setStatus('setup');
         }
     };
@@ -2541,12 +2651,12 @@ function InterviewModule({ onBack }) {
 
     useEffect(() => {
         if (status === 'evaluating' && userAnswers.length === 4) {
-            runAIEvaluation();
+            void runAIEvaluation();
         }
     }, [status, userAnswers]);
 
     const runAIEvaluation = async () => {
-        const session = requestScope.beginSession();
+        const session = requestScope.invalidateSession();
         const totalTime = userAnswers.reduce((acc, curr) => acc + curr.timeTaken, 0);
         const totalWords = userAnswers.reduce((acc, curr) => {
             const words = curr.text.match(/\b\w+\b/g);
@@ -2638,8 +2748,8 @@ function InterviewModule({ onBack }) {
             setStatus('result');
         } catch (e) {
             if (!requestScope.isSessionCurrent(session)) return;
-            setApiError("打分生成失败，可能是网络问题或 AI 返回格式异常。请重试。");
-            setStatus('setup');
+            setApiError(buildRetryAwareMessage("打分生成失败，可能是网络问题或 AI 返回格式异常。请重试。", e));
+            setStatus('evaluation_failed');
         }
     };
 
@@ -2747,7 +2857,7 @@ function InterviewModule({ onBack }) {
                     </div>
                 )}
 
-                {(status === 'interviewing' || status === 'evaluating' || status === 'result') && interviewData && (
+                {(status === 'interviewing' || status === 'evaluating' || status === 'evaluation_failed' || status === 'result') && interviewData && (
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[700px]">
 
                         {status !== 'result' && (
@@ -2827,6 +2937,17 @@ function InterviewModule({ onBack }) {
                                 </div>
                                 <h2 className="text-xl font-bold text-slate-700">正在生成深度分析报告</h2>
                                 <p className="text-slate-500 text-sm mt-2">AI 考官正在分析您的语速并拆解策略逻辑...</p>
+                            </div>
+                        )}
+
+                        {status === 'evaluation_failed' && (
+                            <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 relative p-8 text-center">
+                                <AlertTriangle className="w-12 h-12 text-amber-500 mb-5" />
+                                <h2 className="text-xl font-bold text-slate-700">深度分析暂时失败</h2>
+                                <p className="text-slate-500 text-sm mt-2 mb-6">您无需重新录音，可以直接重试分析。</p>
+                                <button onClick={() => setStatus('evaluating')} className="px-8 py-3 bg-slate-800 hover:bg-slate-900 text-white rounded-full font-bold shadow-lg transition-transform hover:scale-105">
+                                    重试分析
+                                </button>
                             </div>
                         )}
 

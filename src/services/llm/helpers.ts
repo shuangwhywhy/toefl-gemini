@@ -6,6 +6,10 @@ import {
   TRANSCRIBE_MODEL,
   TTS_MODEL
 } from './config';
+import {
+  JSONExtractionError,
+  LLMFormatError
+} from './errors';
 import { getLLMClient } from './client';
 
 const createAbortError = () => {
@@ -41,8 +45,26 @@ const parseGenerateContentText = (response: any) =>
 const extractInlineData = (response: any) =>
   response?.candidates?.[0]?.content?.parts?.[0]?.inlineData ?? null;
 
+const FAILURE_RESPONSE_PATTERN =
+  /\b(error|failed|failure|quota|rate limit|too many|unavailable|permission|unauthorized|forbidden|not found|policy|safety|blocked|refused|denied|invalid api|resource exhausted)\b/i;
+const JSONISH_TEXT_PATTERN =
+  /```|[{[]|"\s*[\w-]+"\s*:|^\s*[\w-]+\s*:/m;
+
+export const shouldAttemptJsonFixer = (rawText: string) => {
+  const text = rawText.trim();
+  if (!text) {
+    return false;
+  }
+
+  if (FAILURE_RESPONSE_PATTERN.test(text)) {
+    return false;
+  }
+
+  return JSONISH_TEXT_PATTERN.test(text);
+};
+
 export const extractJSON = (rawText: string) => {
-  if (!rawText) throw new Error('Empty API response');
+  if (!rawText) throw new JSONExtractionError('Empty API response');
   let text = rawText.trim();
 
   try {
@@ -107,7 +129,7 @@ export const extractJSON = (rawText: string) => {
     }
   }
 
-  throw new Error('JSON extraction algorithm failed');
+  throw new JSONExtractionError('JSON extraction algorithm failed');
 };
 
 export const processDictationText = (rawText: string) => {
@@ -221,12 +243,15 @@ export const fetchGeminiText = async (
   try {
     parsedData = extractJSON(rawText);
   } catch (parseError) {
+    if (!shouldAttemptJsonFixer(rawText)) {
+      throw parseError;
+    }
     console.warn('High-temp JSON parsing failed, triggering zero-temp fixer...');
     const fixerPrompt =
       'Convert the following raw text into STRICT valid JSON. ' +
       'Do not change the core meaning, just fix formatting issues.\n\n' +
       `RAW TEXT:\n${rawText}`;
-    const fixerResponse = await getLLMClient().request({
+    const fixerPromise = getLLMClient().request({
       route: {
         platform: GEMINI_PLATFORM,
         service: 'evaluation',
@@ -249,13 +274,24 @@ export const fetchGeminiText = async (
       },
       parser: async (result) => result
     });
+    const fixerResponse = await bindPendingAbort(fixerPromise, scopeId, signal);
 
     const fixedText = parseGenerateContentText(fixerResponse);
     parsedData = extractJSON(fixedText);
   }
 
   if (validator) {
-    validator(parsedData);
+    try {
+      validator(parsedData);
+    } catch (error) {
+      throw new LLMFormatError(
+        String(
+          (error as { message?: string })?.message ??
+            'Structured response validation failed.'
+        ),
+        'validation_failed'
+      );
+    }
   }
 
   return parsedData;
