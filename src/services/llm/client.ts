@@ -113,6 +113,7 @@ class LLMClient {
   private wakeAt: number | null = null;
   private seq = 0;
   private flushing = false;
+  private lastBusyAt: number | null = null;
 
   constructor(private readonly clock: SchedulerClock = defaultClock) {
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY ?? 'test-key';
@@ -384,6 +385,15 @@ class LLMClient {
         continue;
       }
 
+      // Circuit Breaker for background tasks: If we hit a 429 recently, stop preloading
+      if (head.request.isBackground && this.lastBusyAt) {
+        const now = this.clock.now();
+        // Give the API 30 seconds of "breathing room" for background tasks after a 429
+        if (now - this.lastBusyAt < 30000) {
+          continue;
+        }
+      }
+
       // Background throttling: reserve at least one slot for UI if concurrency allows
       if (head.request.isBackground && bucket.policy.maxConcurrency > 1) {
         if (bucket.inFlightCount >= bucket.policy.maxConcurrency - 1) {
@@ -550,11 +560,16 @@ class LLMClient {
           this.recordStarted(bucket);
         }
         const raw = await this.executePayload(entry.request.payload);
-        return await entry.request.parser(raw);
+        const result = await entry.request.parser(raw);
+        // Recovery successful: Clear circuit breaker
+        this.lastBusyAt = null;
+        return result;
       } catch (error) {
         if (!isBusyOrRateLimitedError(error) || attempt >= maxAttempts) {
           throw error;
         }
+        // Record 429 time to trigger circuit breaker for background tasks
+        this.lastBusyAt = this.clock.now();
         retryMinDelay = bucket.policy.minBusyRetryDelayMs;
       }
     }
