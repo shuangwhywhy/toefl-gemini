@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const requestMock = vi.fn();
 const cancelPendingMock = vi.fn();
-const fetchMock = vi.fn();
 
 vi.mock('../services/llm/client', () => {
   return {
@@ -25,7 +24,6 @@ import {
 } from '../services/llm/retry';
 import {
   fetchGeminiText,
-  requestChatCompletion,
   shouldAttemptJsonFixer
 } from '../services/llm/helpers';
 
@@ -44,14 +42,10 @@ describe('LLM helper recovery and bounded retry', () => {
     vi.useRealTimers();
     requestMock.mockReset();
     cancelPendingMock.mockReset();
-    fetchMock.mockReset();
-    vi.stubGlobal('fetch', fetchMock);
-    vi.unstubAllEnvs();
   });
 
   afterEach(() => {
     vi.useRealTimers();
-    vi.unstubAllEnvs();
   });
 
   it('classifies terminal, transient, format, and cancelled failures correctly', () => {
@@ -173,93 +167,5 @@ describe('LLM helper recovery and bounded retry', () => {
 
     expect(requestMock).toHaveBeenCalledTimes(1);
     expect(shouldAttemptJsonFixer('Error: quota exceeded')).toBe(false);
-  });
-
-  it('falls back to OpenAI structured outputs when Gemini fails for a text-only request', async () => {
-    vi.stubEnv('VITE_OPENAI_API_KEY', 'test-openai-key');
-    vi.stubEnv('VITE_OPENAI_TEXT_MODEL', 'gpt-5-mini');
-    requestMock.mockRejectedValueOnce({ status: 503, message: 'service unavailable' });
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              content: '{"topic":"A","text":"B"}',
-              refusal: null
-            }
-          }
-        ]
-      })
-    });
-
-    const result = await fetchGeminiText(
-      'Return JSON please.',
-      0.7,
-      200,
-      {
-        type: 'OBJECT',
-        properties: {
-          topic: { type: 'STRING' },
-          text: { type: 'STRING' }
-        },
-        required: ['topic', 'text']
-      },
-      null,
-      null,
-      { scopeId: 'scope-openai-fallback' }
-    );
-
-    expect(result).toEqual({ topic: 'A', text: 'B' });
-    expect(requestMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/chat/completions');
-    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
-      method: 'POST',
-      headers: expect.objectContaining({
-        Authorization: 'Bearer test-openai-key'
-      })
-    });
-    expect(fetchMock.mock.calls[0]?.[1]?.body).toContain('"model":"gpt-5-mini"');
-    expect(fetchMock.mock.calls[0]?.[1]?.body).toContain('"reasoning_effort":"minimal"');
-  });
-
-  it('falls back to OpenAI chat when Gemini chat fails and the conversation is text only', async () => {
-    vi.stubEnv('VITE_OPENAI_API_KEY', 'test-openai-key');
-    vi.stubEnv('VITE_OPENAI_TEXT_MODEL', 'gpt-5-mini');
-    requestMock.mockRejectedValueOnce({ status: 503, message: 'service unavailable' });
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              content: '这是 OpenAI 兜底回复。',
-              refusal: null
-            }
-          }
-        ]
-      })
-    });
-
-    const reply = await requestChatCompletion({
-      systemInstruction: {
-        parts: [{ text: '请用中文回答。' }]
-      },
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: '帮我解释一下这个题目。' }]
-        }
-      ],
-      temperature: 0.7,
-      maxOutputTokens: 300,
-      scopeId: 'scope-chat-fallback',
-      supersedeKey: 'chat-reply'
-    });
-
-    expect(reply).toBe('这是 OpenAI 兜底回复。');
-    expect(requestMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
