@@ -1,6 +1,6 @@
 [package]
 name = "toefl-gemini"
-version = "0.1.0"
+version = "0.2.0"
 description = "AI TOEFL Trainer desktop shell"
 authors = ["OpenAI Codex"]
 edition = "2021"
