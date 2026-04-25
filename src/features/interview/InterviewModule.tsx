@@ -150,6 +150,8 @@ export function InterviewModule({ onBack }: { onBack: () => void }) {
         {
           scopeId: requestScope.scopeId,
           supersedeKey: `interview:question-tts:${index}`,
+          origin: isBackground ? 'preload' : 'ui',
+          sceneKey: 'interview:question-tts',
           isBackground
         }
       );
@@ -471,7 +473,9 @@ export function InterviewModule({ onBack }: { onBack: () => void }) {
     try {
       const data = await fetchGeminiText(parts, 0.4, 4000, schema, null, null, {
         scopeId: requestScope.scopeId,
-        supersedeKey: 'interview:evaluate'
+        supersedeKey: 'interview:evaluate',
+        origin: 'ui',
+        sceneKey: 'interview:evaluate'
       });
       if (!requestScope.isSessionCurrent(session)) {
         return;

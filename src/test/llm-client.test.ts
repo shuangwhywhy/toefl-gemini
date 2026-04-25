@@ -25,34 +25,33 @@ import { ScopeCancelledError, SupersededError } from '../services/llm/errors';
 import { createTestLLMClient } from '../services/llm/client';
 import {
   getSchedulerPolicy,
-  resolveRoutePolicy,
-  resolveSharedPoolPolicy
+  resolveRoutePolicy
 } from '../services/llm/config';
-import type { LLMRouteKey } from '../services/llm/types';
+import type { LLMOrigin, LLMRouteKey, LLMUsage } from '../services/llm/types';
 
 const textRoute = {
   platform: 'gemini',
   service: 'text',
-  model: 'gemini-2.5-flash'
-};
+  modelBucket: 'text'
+} as const;
 
 const transcriptionRoute = {
   platform: 'gemini',
   service: 'transcription',
-  model: 'gemini-2.5-flash'
-};
+  modelBucket: 'text'
+} as const;
 
 const ttsSingleRoute = {
   platform: 'gemini',
   service: 'tts-single',
-  model: 'gemini-2.5-flash-preview-tts'
-};
+  modelBucket: 'tts'
+} as const;
 
 const ttsMultiRoute = {
   platform: 'gemini',
   service: 'tts-multi',
-  model: 'gemini-2.5-flash-preview-tts'
-};
+  modelBucket: 'tts'
+} as const;
 
 const clock = {
   now: () => Date.now(),
@@ -84,13 +83,21 @@ const createRequest = (
     scopeId = 'scope-a',
     supersedeKey,
     businessKey = `${route.service}:test`,
-    isBackground = false
+    isBackground = false,
+    usage,
+    origin,
+    sceneKey,
+    estimatedInputTokens
   }: {
     route?: LLMRouteKey;
     scopeId?: string;
     supersedeKey?: string;
     businessKey?: string;
     isBackground?: boolean;
+    usage?: LLMUsage;
+    origin?: LLMOrigin;
+    sceneKey?: string;
+    estimatedInputTokens?: number;
   } = {}
 ) =>
   client.request({
@@ -99,10 +106,13 @@ const createRequest = (
     supersedeKey,
     businessKey,
     isBackground,
+    usage,
+    origin,
+    sceneKey,
+    estimatedInputTokens,
     payload: {
       kind: 'generate-content',
       params: {
-        model: route.model,
         contents: 'test'
       }
     },
@@ -227,11 +237,11 @@ describe('LLMClient scheduler', () => {
   it('waits for the next started-in-window budget before dispatching another transcription request', async () => {
     generateContentMock.mockResolvedValue({ ok: true });
     const client = createTestLLMClient(clock);
-    const transcriptionPolicy = resolveRoutePolicy(transcriptionRoute);
 
     for (let index = 1; index <= 6; index += 1) {
       await createRequest(client, {
         route: transcriptionRoute,
+        usage: 'transcription',
         scopeId: `transcribe-${index}`,
         businessKey: `transcribe:${index}`
       });
@@ -239,18 +249,14 @@ describe('LLMClient scheduler', () => {
 
     const seventh = createRequest(client, {
       route: transcriptionRoute,
+      usage: 'transcription',
       scopeId: 'transcribe-7',
       businessKey: 'transcribe:7'
     });
     await flush();
     expect(generateContentMock).toHaveBeenCalledTimes(6);
 
-    const oneMinuteRule = transcriptionPolicy.rules.find(
-      (rule) => rule.id === 'transcribe.started.1m'
-    );
-    expect(oneMinuteRule?.mode).toBe('started_in_window');
-
-    await vi.advanceTimersByTimeAsync((oneMinuteRule as { windowMs: number }).windowMs - 1);
+    await vi.advanceTimersByTimeAsync(60_000 - 1);
     expect(generateContentMock).toHaveBeenCalledTimes(6);
 
     await vi.advanceTimersByTimeAsync(1);
@@ -328,12 +334,11 @@ describe('LLMClient scheduler', () => {
     await multi;
   });
 
-  it('shares the TTS pool started budget across single and multi speaker routes', async () => {
+  it('uses per-model TTS started budgets before waiting across single and multi speaker routes', async () => {
     generateContentMock.mockResolvedValue({ ok: true });
     const client = createTestLLMClient(clock);
-    const sharedPoolPolicy = resolveSharedPoolPolicy(ttsSingleRoute);
 
-    for (let index = 1; index <= 15; index += 1) {
+    for (let index = 1; index <= 6; index += 1) {
       await createRequest(client, {
         route: index % 2 === 0 ? ttsMultiRoute : ttsSingleRoute,
         scopeId: `tts-shared-${index}`,
@@ -343,22 +348,22 @@ describe('LLMClient scheduler', () => {
 
     const blocked = createRequest(client, {
       route: ttsMultiRoute,
-      scopeId: 'tts-shared-16',
-      businessKey: 'tts:shared:16'
+      scopeId: 'tts-shared-7',
+      businessKey: 'tts:shared:7'
     });
     await flush();
-    expect(generateContentMock).toHaveBeenCalledTimes(15);
+    expect(generateContentMock).toHaveBeenCalledTimes(6);
+    const initialModels = generateContentMock.mock.calls
+      .slice(0, 6)
+      .map((call) => call[0].model);
+    expect(initialModels).toContain('gemini-3.1-flash-tts-preview');
+    expect(initialModels).toContain('gemini-2.5-flash-preview-tts');
 
-    const oneMinuteRule = sharedPoolPolicy?.rules.find(
-      (rule) => rule.id === 'tts.shared.started.1m'
-    );
-    expect(oneMinuteRule?.mode).toBe('started_in_window');
-
-    await vi.advanceTimersByTimeAsync((oneMinuteRule as { windowMs: number }).windowMs - 1);
-    expect(generateContentMock).toHaveBeenCalledTimes(15);
+    await vi.advanceTimersByTimeAsync(60_000 - 1);
+    expect(generateContentMock).toHaveBeenCalledTimes(6);
 
     await vi.advanceTimersByTimeAsync(1);
-    expect(generateContentMock).toHaveBeenCalledTimes(16);
+    expect(generateContentMock).toHaveBeenCalledTimes(7);
     await blocked;
   });
 
@@ -404,6 +409,123 @@ describe('LLMClient scheduler', () => {
 
     activeB.resolve({ ok: true });
     await Promise.all([runningB]);
+  });
+
+  it('starts a queued UI request ahead of lower-priority preload work', async () => {
+    const activeA = deferred<any>();
+    const activeB = deferred<any>();
+    const uiDeferred = deferred<any>();
+    const preloadDeferred = deferred<any>();
+    generateContentMock
+      .mockImplementationOnce(() => activeA.promise)
+      .mockImplementationOnce(() => activeB.promise)
+      .mockImplementationOnce(() => uiDeferred.promise)
+      .mockImplementationOnce(() => preloadDeferred.promise);
+
+    const client = createTestLLMClient(clock);
+
+    const runningA = createRequest(client, { route: textRoute, scopeId: 'active-a', businessKey: 'active:a' });
+    const runningB = createRequest(client, { route: textRoute, scopeId: 'active-b', businessKey: 'active:b' });
+    await flush();
+
+    const preload = createRequest(client, {
+      route: textRoute,
+      scopeId: 'preload:shadow',
+      businessKey: 'preload:shadow',
+      isBackground: true,
+      origin: 'preload',
+      sceneKey: 'shadow:preload'
+    });
+    const ui = createRequest(client, {
+      route: textRoute,
+      scopeId: 'ui-shadow',
+      businessKey: 'ui:shadow',
+      origin: 'ui',
+      sceneKey: 'shadow:generate'
+    });
+    await flush();
+    expect(generateContentMock).toHaveBeenCalledTimes(2);
+
+    activeA.resolve({ ok: 'slot' });
+    await runningA;
+    await flush();
+    expect(generateContentMock).toHaveBeenCalledTimes(3);
+
+    uiDeferred.resolve({ ok: 'ui' });
+    await expect(ui).resolves.toEqual({ ok: 'ui' });
+
+    activeB.resolve({ ok: true });
+    await runningB;
+    await flush();
+    expect(generateContentMock).toHaveBeenCalledTimes(4);
+    preloadDeferred.resolve({ ok: 'preload' });
+    await expect(preload).resolves.toEqual({ ok: 'preload' });
+  });
+
+  it('drops a model below the yellow line behind the next text candidate', async () => {
+    generateContentMock.mockResolvedValue({ ok: true });
+    const client = createTestLLMClient(clock);
+
+    for (let index = 1; index <= 6; index += 1) {
+      await createRequest(client, {
+        route: textRoute,
+        scopeId: `preload-${index}`,
+        businessKey: `preload:${index}`,
+        isBackground: true,
+        origin: 'preload',
+        sceneKey: `preload:${index}`
+      });
+    }
+
+    await createRequest(client, {
+      route: textRoute,
+      scopeId: 'preload-7',
+      businessKey: 'preload:7',
+      isBackground: true,
+      origin: 'preload',
+      sceneKey: 'preload:7'
+    });
+
+    expect(generateContentMock.mock.calls.map((call) => call[0].model)).toEqual([
+      'gemini-3.1-flash-lite-preview',
+      'gemini-3.1-flash-lite-preview',
+      'gemini-3.1-flash-lite-preview',
+      'gemini-3.1-flash-lite-preview',
+      'gemini-3.1-flash-lite-preview',
+      'gemini-3.1-flash-lite-preview',
+      'gemini-2.5-flash-lite-preview'
+    ]);
+  });
+
+  it('temporarily disables an unknown model and retries on the next candidate', async () => {
+    generateContentMock
+      .mockRejectedValueOnce({ status: 404, message: 'unknown model' })
+      .mockResolvedValueOnce({ ok: 'fallback' })
+      .mockResolvedValueOnce({ ok: 'second-request' });
+
+    const client = createTestLLMClient(clock);
+
+    await expect(
+      createRequest(client, {
+        route: textRoute,
+        scopeId: 'unknown-model',
+        businessKey: 'unknown:model'
+      })
+    ).resolves.toEqual({ ok: 'fallback' });
+
+    await expect(
+      createRequest(client, {
+        route: textRoute,
+        scopeId: 'after-disable',
+        businessKey: 'after:disable'
+      })
+    ).resolves.toEqual({ ok: 'second-request' });
+
+    expect(generateContentMock.mock.calls.map((call) => call[0].model)).toEqual([
+      'gemini-3.1-flash-lite-preview',
+      'gemini-2.5-flash-lite-preview',
+      'gemini-2.5-flash-lite-preview'
+    ]);
   });
 
   it('coalesces an identical in-flight request and preserves callback order', async () => {
@@ -471,29 +593,20 @@ describe('LLMClient scheduler', () => {
     expect(generateContentMock).toHaveBeenCalledTimes(1);
   });
 
-  it('holds background work during the configured busy cooldown after repeated 429s', async () => {
+  it('falls back to the next text candidate after busy retries are exhausted', async () => {
     generateContentMock
       .mockRejectedValueOnce({ status: 429, message: 'rate limited' })
       .mockRejectedValueOnce({ status: 429, message: 'rate limited' })
       .mockRejectedValueOnce({ status: 429, message: 'rate limited' })
-      .mockResolvedValueOnce({ ok: 'after-cooldown' });
+      .mockResolvedValueOnce({ ok: 'fallback-success' });
 
     const client = createTestLLMClient(clock);
     const textPolicy = resolveRoutePolicy(textRoute);
-    const { backgroundBusyCooldownMs } = getSchedulerPolicy();
 
     const first = createRequest(client, {
       route: textRoute,
-      scopeId: 'background-a',
-      businessKey: 'background:a',
-      isBackground: true
-    });
-    const firstRejection = expect(first).rejects.toMatchObject({ status: 429 });
-    const second = createRequest(client, {
-      route: textRoute,
-      scopeId: 'background-b',
-      businessKey: 'background:b',
-      isBackground: true
+      scopeId: 'ui-a',
+      businessKey: 'ui:a'
     });
 
     await flush();
@@ -503,19 +616,14 @@ describe('LLMClient scheduler', () => {
     expect(generateContentMock).toHaveBeenCalledTimes(2);
 
     await vi.advanceTimersByTimeAsync(textPolicy.minBusyRetryDelayMs);
-    await firstRejection;
-    await flush();
-    expect(generateContentMock).toHaveBeenCalledTimes(3);
-
-    await vi.advanceTimersByTimeAsync(backgroundBusyCooldownMs - 1);
-    expect(generateContentMock).toHaveBeenCalledTimes(3);
-
-    await vi.advanceTimersByTimeAsync(1);
-    expect(generateContentMock).toHaveBeenCalledTimes(3);
-
-    client.cancelPendingByScope('missing-scope');
     await flush();
     expect(generateContentMock).toHaveBeenCalledTimes(4);
-    await expect(second).resolves.toEqual({ ok: 'after-cooldown' });
+    await expect(first).resolves.toEqual({ ok: 'fallback-success' });
+    expect(generateContentMock.mock.calls.map((call) => call[0].model)).toEqual([
+      'gemini-3.1-flash-lite-preview',
+      'gemini-3.1-flash-lite-preview',
+      'gemini-3.1-flash-lite-preview',
+      'gemini-2.5-flash-lite-preview'
+    ]);
   });
 });

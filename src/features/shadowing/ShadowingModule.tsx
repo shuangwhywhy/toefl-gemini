@@ -246,7 +246,9 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
         setIsTtsLoading(true);
         const url = await fetchNeuralTTS(selectedVoice, text, null, {
           scopeId: requestScope.scopeId,
-          supersedeKey: `shadow:tts:${selectedVoice}`
+          supersedeKey: `shadow:tts:${selectedVoice}`,
+          origin: 'ui',
+          sceneKey: 'shadow:tts'
         });
         if (!isCancelled && typeof url === 'string') {
           audioCacheRef.current[selectedVoice] = url;
@@ -398,7 +400,9 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
 
       const data = await fetchGeminiText(prompt, 0.7, 400, schema, null, validator, {
         scopeId: requestScope.scopeId,
-        supersedeKey: 'shadow:generate'
+        supersedeKey: 'shadow:generate',
+        origin: 'ui',
+        sceneKey: 'shadow:generate'
       });
       if (signal.aborted || !requestScope.isSessionCurrent(session)) {
         return;
@@ -670,7 +674,9 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
 
       let data = await fetchGeminiText(parts, 0.4, 1500, schema, null, validator, {
         scopeId: requestScope.scopeId,
-        supersedeKey: 'shadow:evaluate'
+        supersedeKey: 'shadow:evaluate',
+        origin: 'ui',
+        sceneKey: 'shadow:evaluate'
       });
       if (!requestScope.isSessionCurrent(evaluationSession)) {
         return;

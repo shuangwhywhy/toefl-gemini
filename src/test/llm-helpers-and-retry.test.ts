@@ -24,6 +24,7 @@ import {
 } from '../services/llm/retry';
 import {
   fetchGeminiText,
+  fetchNeuralTTS,
   shouldAttemptJsonFixer
 } from '../services/llm/helpers';
 
@@ -129,6 +130,64 @@ describe('LLM helper recovery and bounded retry', () => {
 
     expect(result).toEqual({ topic: 'A', text: 'B' });
     expect(requestMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends text requests through the text bucket without a fixed model', async () => {
+    requestMock.mockResolvedValueOnce(responseWithText('{"ok":true}'));
+
+    await fetchGeminiText(
+      'prompt',
+      0.9,
+      200,
+      null,
+      null,
+      null,
+      {
+        scopeId: 'scope-text-bucket',
+        supersedeKey: 'shadow:generate',
+        origin: 'ui',
+        sceneKey: 'shadow:generate'
+      }
+    );
+
+    expect(requestMock).toHaveBeenCalledTimes(1);
+    expect(requestMock.mock.calls[0][0]).toMatchObject({
+      route: {
+        platform: 'gemini',
+        service: 'text',
+        modelBucket: 'text'
+      },
+      usage: 'text',
+      origin: 'ui',
+      sceneKey: 'shadow:generate'
+    });
+    expect(requestMock.mock.calls[0][0].route.model).toBeUndefined();
+    expect(requestMock.mock.calls[0][0].payload.params.model).toBeUndefined();
+  });
+
+  it('sends TTS requests only through the TTS bucket', async () => {
+    requestMock.mockResolvedValueOnce('audio-url');
+
+    await fetchNeuralTTS('Charon', 'A unique helper test sentence.', null, {
+      scopeId: 'scope-tts-bucket',
+      supersedeKey: 'dictation:tts',
+      origin: 'ui',
+      sceneKey: 'dictation:tts'
+    });
+
+    expect(requestMock).toHaveBeenCalledTimes(1);
+    expect(requestMock.mock.calls[0][0]).toMatchObject({
+      route: {
+        platform: 'gemini',
+        service: 'tts-single',
+        modelBucket: 'tts'
+      },
+      usage: 'tts',
+      origin: 'ui',
+      sceneKey: 'dictation:tts'
+    });
+    expect(requestMock.mock.calls[0][0].route.model).toBeUndefined();
+    expect(requestMock.mock.calls[0][0].payload.params.model).toBeUndefined();
   });
 
   it('only invokes the fixer for json-like malformed content', async () => {

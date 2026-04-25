@@ -149,6 +149,8 @@ export const generateInterviewSession = async ({
       scopeId,
       supersedeKey,
       isBackground,
+      origin: isBackground ? 'preload' : 'ui',
+      sceneKey: 'interview:generate',
       disableJsonFixer: true,
       businessContext: {
         task: 'interview',
@@ -167,6 +169,8 @@ export const generateInterviewSession = async ({
     {
       scopeId,
       supersedeKey: firstTtsSupersedeKey,
+      origin: isBackground ? 'preload' : 'ui',
+      sceneKey: 'interview:first-tts',
       isBackground
     }
   );

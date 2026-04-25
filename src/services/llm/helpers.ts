@@ -1,11 +1,6 @@
 import { globalAudioCache } from '../audio/cache';
 import { pcmToWavUrl } from '../audio/pcm';
-import {
-  GEMINI_PLATFORM,
-  TEXT_MODEL,
-  TRANSCRIBE_MODEL,
-  TTS_MODEL
-} from './config';
+import { GEMINI_PLATFORM } from './modelCatalog';
 import {
   JSONExtractionError,
   LLMFormatError
@@ -15,6 +10,12 @@ import {
   hashBlobForBusinessKey
 } from './businessKey';
 import { getLLMClient } from './client';
+import type {
+  LLMModelBucket,
+  LLMOrigin,
+  LLMRouteService,
+  LLMUsage
+} from './types';
 
 const createAbortError = () => {
   const error = new Error('Request aborted before dispatch.');
@@ -169,8 +170,13 @@ export const processDictationText = (rawText: string) => {
 interface SharedRequestOptions {
   scopeId: string;
   supersedeKey?: string;
-  service?: string;
-  model?: string;
+  service?: LLMRouteService;
+  modelBucket?: LLMModelBucket;
+  usage?: LLMUsage;
+  origin?: LLMOrigin;
+  sceneKey?: string;
+  priority?: number;
+  estimatedInputTokens?: number;
   businessContext?: unknown;
   isBackground?: boolean;
   disableJsonFixer?: boolean;
@@ -183,6 +189,51 @@ const ensureScope = (options?: SharedRequestOptions) => {
   return options;
 };
 
+const inferOrigin = (options: SharedRequestOptions): LLMOrigin => {
+  if (options.origin) {
+    return options.origin;
+  }
+  if (options.isBackground || options.scopeId.startsWith('preload:')) {
+    return 'preload';
+  }
+  return 'ui';
+};
+
+const inferSceneKey = (
+  fallback: string,
+  options: SharedRequestOptions
+) => {
+  if (options.sceneKey) {
+    return options.sceneKey;
+  }
+  if (options.supersedeKey) {
+    return options.supersedeKey.split(':').slice(0, 2).join(':');
+  }
+  return fallback;
+};
+
+const estimateTokensFromParts = (value: unknown): number => {
+  if (typeof value === 'string') {
+    return Math.max(1, Math.ceil(value.length / 4));
+  }
+  if (Array.isArray(value)) {
+    return value.reduce((sum, entry) => sum + estimateTokensFromParts(entry), 0);
+  }
+  if (!value || typeof value !== 'object') {
+    return 1;
+  }
+
+  let total = 0;
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (key === 'data' && typeof entry === 'string') {
+      total += Math.min(1_024, Math.ceil(entry.length / 256));
+    } else {
+      total += estimateTokensFromParts(entry);
+    }
+  }
+  return Math.max(1, total);
+};
+
 export const fetchGeminiText = async (
   promptOrParts: string | Array<Record<string, unknown>>,
   temperature = 0.9,
@@ -193,9 +244,10 @@ export const fetchGeminiText = async (
   requestOptions?: SharedRequestOptions
 ): Promise<any> => {
   const { scopeId, supersedeKey, isBackground } = ensureScope(requestOptions);
-  const model = requestOptions?.model ?? TEXT_MODEL;
   const primaryService = requestOptions?.service ?? 'text';
   const disableJsonFixer = requestOptions?.disableJsonFixer ?? false;
+  const origin = inferOrigin(requestOptions);
+  const sceneKey = inferSceneKey(primaryService, requestOptions);
 
   if (signal?.aborted) {
     throw createAbortError();
@@ -219,8 +271,10 @@ export const fetchGeminiText = async (
   };
 
   const runAttempt = async (fixMode = false) => {
+    const service = fixMode ? 'evaluation' : primaryService;
+    const attemptOrigin: LLMOrigin = fixMode ? 'retry' : origin;
     const businessKey = createBusinessKey(
-      `generate-content:${fixMode ? 'evaluation' : primaryService}:${model}`,
+      `generate-content:${service}`,
       requestOptions?.businessContext ?? {
         contents: parts,
         temperature: fixMode ? 0 : temperature,
@@ -232,17 +286,22 @@ export const fetchGeminiText = async (
     const promise = getLLMClient().request({
       route: {
         platform: GEMINI_PLATFORM,
-        service: fixMode ? 'evaluation' : primaryService,
-        model
+        service,
+        modelBucket: requestOptions?.modelBucket ?? 'text'
       },
       scopeId,
       supersedeKey,
       isBackground,
+      usage: requestOptions?.usage ?? (service === 'transcription' ? 'transcription' : 'text'),
+      origin: attemptOrigin,
+      sceneKey: fixMode ? `${sceneKey}:json-fixer` : sceneKey,
+      priority: requestOptions?.priority,
+      estimatedInputTokens:
+        requestOptions?.estimatedInputTokens ?? estimateTokensFromParts(parts),
       businessKey,
       payload: {
         kind: 'generate-content',
         params: {
-          model,
           contents: [{ parts }],
           config: {
             temperature: fixMode ? 0 : temperature,
@@ -281,12 +340,16 @@ export const fetchGeminiText = async (
       route: {
         platform: GEMINI_PLATFORM,
         service: 'evaluation',
-        model
+        modelBucket: 'text'
       },
       scopeId,
       supersedeKey,
       isBackground,
-      businessKey: createBusinessKey(`json-fixer:evaluation:${model}`, {
+      usage: 'text',
+      origin: 'retry',
+      sceneKey: `${sceneKey}:json-fixer`,
+      estimatedInputTokens: estimateTokensFromParts(fixerPrompt),
+      businessKey: createBusinessKey('json-fixer:evaluation', {
         rawText,
         schema,
         maxOutputTokens
@@ -294,7 +357,6 @@ export const fetchGeminiText = async (
       payload: {
         kind: 'generate-content',
         params: {
-          model,
           contents: [{ parts: [{ text: fixerPrompt }] }],
           config: {
             temperature: 0,
@@ -336,6 +398,8 @@ export const fetchNeuralTTS = async (
   requestOptions?: SharedRequestOptions
 ): Promise<string | null> => {
   const { scopeId, supersedeKey, isBackground } = ensureScope(requestOptions);
+  const origin = inferOrigin(requestOptions);
+  const sceneKey = inferSceneKey('tts-single', requestOptions);
   const cacheKey = `tts_${voiceName}_${textToSpeak}`;
   const cachedUrl = await globalAudioCache.get(cacheKey);
   if (cachedUrl) {
@@ -346,12 +410,17 @@ export const fetchNeuralTTS = async (
     route: {
       platform: GEMINI_PLATFORM,
       service: 'tts-single',
-      model: TTS_MODEL
+      modelBucket: 'tts'
     },
     scopeId,
     supersedeKey,
     isBackground,
-    businessKey: createBusinessKey(`tts-single:${TTS_MODEL}`, {
+    usage: 'tts',
+    origin,
+    sceneKey,
+    estimatedInputTokens:
+      requestOptions?.estimatedInputTokens ?? estimateTokensFromParts(textToSpeak),
+    businessKey: createBusinessKey('tts-single', {
       voiceName,
       textToSpeak,
       responseModalities: ['AUDIO']
@@ -359,7 +428,6 @@ export const fetchNeuralTTS = async (
     payload: {
       kind: 'generate-content',
       params: {
-        model: TTS_MODEL,
         contents: [{ parts: [{ text: textToSpeak }] }],
         config: {
           responseModalities: ['AUDIO'],
@@ -406,6 +474,8 @@ export const fetchConversationTTS = async (
   requestOptions?: SharedRequestOptions
 ): Promise<string | null> => {
   const { scopeId, supersedeKey, isBackground } = ensureScope(requestOptions);
+  const origin = inferOrigin(requestOptions);
+  const sceneKey = inferSceneKey('tts-multi', requestOptions);
   const cacheKey = `tts_conversation_${transcript.substring(0, 100)}`;
   const cachedUrl = await globalAudioCache.get(cacheKey);
   if (cachedUrl) {
@@ -416,12 +486,17 @@ export const fetchConversationTTS = async (
     route: {
       platform: GEMINI_PLATFORM,
       service: 'tts-multi',
-      model: TTS_MODEL
+      modelBucket: 'tts'
     },
     scopeId,
     supersedeKey,
     isBackground,
-    businessKey: createBusinessKey(`tts-multi:${TTS_MODEL}`, {
+    usage: 'tts',
+    origin,
+    sceneKey,
+    estimatedInputTokens:
+      requestOptions?.estimatedInputTokens ?? estimateTokensFromParts(transcript),
+    businessKey: createBusinessKey('tts-multi', {
       transcript,
       responseModalities: ['AUDIO'],
       speakers: [
@@ -432,7 +507,6 @@ export const fetchConversationTTS = async (
     payload: {
       kind: 'generate-content',
       params: {
-        model: TTS_MODEL,
         contents: [{ parts: [{ text: transcript }] }],
         config: {
           responseModalities: ['AUDIO'],
@@ -495,11 +569,15 @@ export const requestChatCompletion = async ({
     route: {
       platform: GEMINI_PLATFORM,
       service: 'chat',
-      model: TEXT_MODEL
+      modelBucket: 'text'
     },
     scopeId,
     supersedeKey,
-    businessKey: createBusinessKey(`chat:${TEXT_MODEL}`, {
+    usage: 'text',
+    origin: 'ui',
+    sceneKey: 'chat:tutor',
+    estimatedInputTokens: estimateTokensFromParts(contents),
+    businessKey: createBusinessKey('chat', {
       contents,
       systemInstruction,
       temperature,
@@ -508,7 +586,6 @@ export const requestChatCompletion = async ({
     payload: {
       kind: 'generate-content',
       params: {
-        model: TEXT_MODEL,
         contents,
         config: {
           temperature,
@@ -580,7 +657,11 @@ export const requestTranscription = async ({
       scopeId,
       supersedeKey,
       service: 'transcription',
-      model: TRANSCRIBE_MODEL,
+      usage: 'transcription',
+      modelBucket: 'text',
+      origin: 'ui',
+      sceneKey: 'speech:transcription',
+      estimatedInputTokens: estimateTokensFromParts(prompt) + 1_024,
       businessContext: {
         prompt:
           prompt ??

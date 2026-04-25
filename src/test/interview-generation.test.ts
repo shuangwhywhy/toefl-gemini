@@ -122,6 +122,8 @@ describe('interview generation helpers', () => {
     expect(requestOptions).toMatchObject({
       scopeId: 'interview-scope',
       supersedeKey: 'interview:generate',
+      origin: 'ui',
+      sceneKey: 'interview:generate',
       disableJsonFixer: true,
       businessContext: {
         task: 'interview',
@@ -138,6 +140,8 @@ describe('interview generation helpers', () => {
       {
         scopeId: 'interview-scope',
         supersedeKey: 'interview:first-tts',
+        origin: 'ui',
+        sceneKey: 'interview:first-tts',
         isBackground: false
       }
     );

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import llmPolicyJson from '../services/llm/llm-policy.json';
@@ -8,56 +10,103 @@ import {
   resolveRoutePolicy,
   resolveSharedPoolPolicy
 } from '../services/llm/config';
+import {
+  getCandidateModels,
+  LLM_MODEL_CATALOG,
+  MODEL_BUCKETS
+} from '../services/llm/modelCatalog';
 
 const textRoute = {
   platform: 'gemini',
   service: 'text',
-  model: 'gemini-2.5-flash'
-} as const;
-
-const transcriptionRoute = {
-  platform: 'gemini',
-  service: 'transcription',
-  model: 'gemini-2.5-flash'
+  modelBucket: 'text'
 } as const;
 
 const singleVoiceRoute = {
   platform: 'gemini',
   service: 'tts-single',
-  model: 'gemini-2.5-flash-preview-tts'
+  model: 'gemini-3.1-flash-tts-preview'
 } as const;
 
-describe('LLM policy config', () => {
-  it('parses and compiles the semantic config while preserving compatibility ids', () => {
+describe('LLM policy config and model catalog', () => {
+  it('keeps execution policy separate from model quota', () => {
     const parsed = parseLLMPolicyConfigDocument(llmPolicyJson);
     const compiled = compileLLMPolicyConfigDocument(parsed);
 
     expect(compiled.scheduler.backgroundBusyCooldownMs).toBe(30000);
-    expect(compiled.routes.text.defaultPolicy.maxConcurrency).toBe(2);
     expect(getSchedulerPolicy().backgroundBusyCooldownMs).toBe(30000);
-
-    expect(resolveRoutePolicy(textRoute).rules.map((rule) => rule.id)).toEqual([
-      'platform.started.1m',
-      'platform.started.1d'
-    ]);
-    expect(resolveRoutePolicy(transcriptionRoute).rules.map((rule) => rule.id)).toEqual([
-      'transcribe.started.1m',
-      'transcribe.started.5m',
-      'transcribe.started.1d',
-      'transcribe.active'
-    ]);
+    expect(resolveRoutePolicy(textRoute).maxConcurrency).toBe(2);
+    expect(resolveRoutePolicy(textRoute).rules).toEqual([]);
 
     expect(resolveSharedPoolPolicy(singleVoiceRoute)).toMatchObject({
       key: 'speechSynthesis',
-      stateKey: 'gemini:tts-shared:gemini-2.5-flash-preview-tts'
+      stateKey: 'gemini:tts-shared:gemini-3.1-flash-tts-preview'
     });
     expect(
       resolveSharedPoolPolicy(singleVoiceRoute)?.rules.map((rule) => rule.id)
-    ).toEqual([
-      'tts.shared.started.1m',
-      'tts.shared.started.1d',
-      'tts.shared.active'
+    ).toEqual(['tts.shared.active']);
+  });
+
+  it('defines ordered text and TTS buckets with screenshot quotas', () => {
+    expect(MODEL_BUCKETS.text).toEqual([
+      'gemini-3.1-flash-lite-preview',
+      'gemini-2.5-flash-lite-preview',
+      'gemini-2.5-flash-preview',
+      'gemma-4-31b-it'
     ]);
+    expect(MODEL_BUCKETS.tts).toEqual([
+      'gemini-3.1-flash-tts-preview',
+      'gemini-2.5-flash-preview-tts'
+    ]);
+
+    expect(LLM_MODEL_CATALOG['gemini-3.1-flash-lite-preview'].quota).toEqual({
+      rpm: 15,
+      tpm: 250000,
+      rpd: 500
+    });
+    expect(LLM_MODEL_CATALOG['gemini-2.5-flash-lite-preview'].quota).toEqual({
+      rpm: 10,
+      tpm: 250000,
+      rpd: 20
+    });
+    expect(LLM_MODEL_CATALOG['gemini-2.5-flash-preview'].quota).toEqual({
+      rpm: 5,
+      tpm: 250000,
+      rpd: 20
+    });
+    expect(LLM_MODEL_CATALOG['gemini-3.1-flash-tts-preview'].quota).toEqual({
+      rpm: 3,
+      tpm: 10000,
+      rpd: 10
+    });
+    expect(LLM_MODEL_CATALOG['gemma-4-31b-it'].quota).toEqual({
+      rpm: 15,
+      tpm: null,
+      rpd: 1500
+    });
+  });
+
+  it('keeps Gemma 4 31B as the official non-preview API id', () => {
+    expect(LLM_MODEL_CATALOG['gemma-4-31b-it']).toBeTruthy();
+    expect(LLM_MODEL_CATALOG['gemma-4-31b-preview']).toBeUndefined();
+    expect(getCandidateModels('text', 'text').map((model) => model.id)).toContain(
+      'gemma-4-31b-it'
+    );
+    expect(getCandidateModels('text', 'transcription').map((model) => model.id)).not.toContain(
+      'gemma-4-31b-it'
+    );
+  });
+
+  it('does not expose model selection through env variables', () => {
+    const envExample = readFileSync(
+      resolve(process.cwd(), '.env.example'),
+      'utf8'
+    );
+
+    expect(envExample).toContain('VITE_GEMINI_API_KEY');
+    expect(envExample).not.toContain('VITE_GEMINI_TEXT_MODEL');
+    expect(envExample).not.toContain('VITE_GEMINI_TTS_MODEL');
+    expect(envExample).not.toContain('VITE_GEMINI_TRANSCRIBE_MODEL');
   });
 
   it('applies profile ordering and model-specific overrides when compiling', () => {
@@ -70,7 +119,6 @@ describe('LLM policy config', () => {
           singleVoice: {
             ...llmPolicyJson.capabilities.speech.singleVoice,
             models: {
-              ...llmPolicyJson.capabilities.speech.singleVoice.models,
               'gemini-custom-tts': {
                 concurrency: 3,
                 busyRetry: {
@@ -151,22 +199,5 @@ describe('LLM policy config', () => {
         }
       })
     ).toThrow(/backgroundQueue\.cooldownAfterBusy/);
-
-    expect(() =>
-      parseLLMPolicyConfigDocument({
-        ...llmPolicyJson,
-        sharedPools: {
-          ...llmPolicyJson.sharedPools,
-          speechSynthesis: {
-            ...llmPolicyJson.sharedPools.speechSynthesis,
-            limits: {
-              started: {
-                '90q': 15
-              }
-            }
-          }
-        }
-      })
-    ).toThrow(/sharedPools\.speechSynthesis\.limits\.started\.90q/);
   });
 });

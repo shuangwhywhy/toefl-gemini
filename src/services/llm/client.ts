@@ -3,17 +3,24 @@ import { DBUtils } from '../storage/db';
 import { ScopeCancelledError, SupersededError } from './errors';
 import {
   GEMINI_PLATFORM,
-  getSchedulerPolicy,
-  resolveRoutePolicy,
-  resolveSharedPoolPolicy
-} from './config';
+  getCandidateModels,
+  ORIGIN_PRIORITY
+} from './modelCatalog';
+import { getSchedulerPolicy, resolveRoutePolicy } from './config';
+import {
+  buildQuotaContext,
+  createEmptyQuotaHistories,
+  QuotaHistories,
+  QuotaManager,
+  QuotaRequestContext,
+  QuotaSelection
+} from './quotaManager';
 import type {
+  LLMOrigin,
   LLMRequest,
   LLMPayload,
-  LLMRouteKey,
+  LLMRouteService,
   PersistedRateState,
-  RateLimitRule,
-  ResolvedSharedPoolPolicy,
   RoutePolicy
 } from './types';
 
@@ -34,30 +41,35 @@ interface SharedRequestState<T> {
   subscribers: QueueSubscriber<T>[];
 }
 
+interface NormalizedLLMRequest<T> extends LLMRequest<T> {
+  route: {
+    platform: string;
+    service: LLMRouteService;
+    modelBucket: 'text' | 'tts';
+  };
+}
+
 interface QueueEntry<T> {
   id: string;
   seq: number;
-  request: LLMRequest<T>;
+  request: NormalizedLLMRequest<T>;
   bucketKey: string;
-  route: LLMRouteKey;
   policy: RoutePolicy;
-  sharedPool: ResolvedSharedPoolPolicy | null;
   coalesceKey: string;
+  quotaContext: QuotaRequestContext;
 }
 
 interface RouteBucketState {
   key: string;
-  route: LLMRouteKey;
+  service: LLMRouteService;
   policy: RoutePolicy;
   pending: QueueEntry<unknown>[];
-  histories: Record<string, number[]>;
   inFlightCount: number;
 }
 
 interface SharedPoolState {
   key: string;
-  policy: ResolvedSharedPoolPolicy;
-  histories: Record<string, number[]>;
+  maxActive: number;
   inFlightCount: number;
 }
 
@@ -72,7 +84,9 @@ interface SchedulerClock {
   clearTimeout(timer: number): void;
 }
 
-const RATE_STATE_KEY = 'llm_rate_state_v1';
+const RATE_STATE_KEY = 'llm_rate_state_v2';
+const TTS_SHARED_POOL_KEY = 'speechSynthesis';
+const TTS_SHARED_POOL_ACTIVE = 1;
 const schedulerPolicy = getSchedulerPolicy();
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -96,37 +110,67 @@ const isBusyOrRateLimitedError = (error: unknown) => {
   );
 };
 
-const buildRouteBucketKey = (route: LLMRouteKey) =>
-  `${route.platform}:${route.service}:${route.model}`;
+const isModelNotFoundError = (error: unknown) => {
+  const status =
+    (error as { status?: number; code?: number })?.status ??
+    (error as { code?: number })?.code;
+  const message = String((error as { message?: string })?.message ?? '').toLowerCase();
+  return (
+    (status === 400 || status === 404) &&
+    /model|unknown|not found|not supported|unsupported/i.test(message)
+  );
+};
 
-const buildCoalesceKey = (route: LLMRouteKey, businessKey: string) =>
-  `${buildRouteBucketKey(route)}:${businessKey}`;
+const buildLogicalBucketKey = (entry: QuotaRequestContext) =>
+  `${entry.platform}:${entry.service}:${entry.modelBucket}`;
+
+const buildCoalesceKey = (bucketKey: string, businessKey: string) =>
+  `${bucketKey}:${businessKey}`;
 
 const generateId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
-const clonePersistedState = (
-  routeBuckets: Map<string, RouteBucketState>,
-  sharedPools: Map<string, SharedPoolState>
-) => {
-  const histories: PersistedRateState['histories'] = {};
-
-  for (const [bucketKey, bucket] of routeBuckets.entries()) {
-    histories[bucketKey] = {};
-    for (const [ruleId, values] of Object.entries(bucket.histories)) {
-      histories[bucketKey][ruleId] = [...values];
-    }
+const inferOrigin = (request: LLMRequest<unknown>): LLMOrigin => {
+  if (request.origin) {
+    return request.origin;
   }
-
-  for (const [poolKey, pool] of sharedPools.entries()) {
-    histories[poolKey] = {};
-    for (const [ruleId, values] of Object.entries(pool.histories)) {
-      histories[poolKey][ruleId] = [...values];
-    }
+  if (request.isBackground || request.scopeId.startsWith('preload:')) {
+    return 'preload';
   }
-
-  return { histories };
+  return 'ui';
 };
+
+const inferSceneKey = (request: LLMRequest<unknown>) => {
+  if (request.sceneKey) {
+    return request.sceneKey;
+  }
+  if (request.supersedeKey) {
+    return request.supersedeKey.split(':').slice(0, 2).join(':');
+  }
+  return request.route.service;
+};
+
+const clonePersistedState = (histories: QuotaHistories): PersistedRateState => ({
+  histories: Object.fromEntries(
+    Object.entries(histories.started).map(([stateKey, ruleHistory]) => [
+      stateKey,
+      Object.fromEntries(
+        Object.entries(ruleHistory).map(([ruleId, values]) => [ruleId, [...values]])
+      )
+    ])
+  ),
+  tokenHistories: Object.fromEntries(
+    Object.entries(histories.tokens).map(([stateKey, ruleHistory]) => [
+      stateKey,
+      Object.fromEntries(
+        Object.entries(ruleHistory).map(([ruleId, values]) => [
+          ruleId,
+          values.map((event) => ({ ...event }))
+        ])
+      )
+    ])
+  )
+});
 
 class LLMClient {
   private readonly routeBuckets = new Map<string, RouteBucketState>();
@@ -134,7 +178,8 @@ class LLMClient {
   private readonly sharedRequests = new Map<string, SharedRequestState<unknown>>();
   private readonly readyPromise: Promise<void>;
   private readonly ai: GoogleGenAI;
-  private persistedHistories: PersistedRateState['histories'] = {};
+  private readonly quotaHistories = createEmptyQuotaHistories();
+  private readonly quotaManager: QuotaManager;
   private wakeTimer: number | null = null;
   private wakeAt: number | null = null;
   private seq = 0;
@@ -147,25 +192,37 @@ class LLMClient {
       throw new Error('Missing VITE_GEMINI_API_KEY');
     }
     this.ai = new GoogleGenAI({ apiKey });
+    this.quotaManager = new QuotaManager(clock, this.quotaHistories);
     this.readyPromise = this.hydrate();
   }
 
   async request<T>(request: LLMRequest<T>) {
     await this.readyPromise;
 
-    const route = {
-      platform: request.route.platform || GEMINI_PLATFORM,
-      service: request.route.service,
-      model: request.route.model
-    };
-    const policy = resolveRoutePolicy(route);
-    const sharedPool = resolveSharedPoolPolicy(route);
-    const bucketKey = buildRouteBucketKey(route);
-    const coalesceKey = buildCoalesceKey(route, request.businessKey);
-    const bucket = this.getOrCreateRouteBucket(bucketKey, route, policy);
+    const origin = inferOrigin(request as LLMRequest<unknown>);
+    const quotaContext = buildQuotaContext({
+      route: {
+        platform: request.route.platform || GEMINI_PLATFORM,
+        service: request.route.service,
+        model: request.route.model,
+        modelBucket: request.route.modelBucket
+      },
+      usage: request.usage,
+      origin,
+      sceneKey: inferSceneKey(request as LLMRequest<unknown>),
+      priority: request.priority ?? ORIGIN_PRIORITY[origin],
+      estimatedInputTokens: request.estimatedInputTokens
+    });
+    const policy = resolveRoutePolicy({
+      platform: quotaContext.platform,
+      service: quotaContext.service
+    });
+    const bucketKey = buildLogicalBucketKey(quotaContext);
+    const coalesceKey = buildCoalesceKey(bucketKey, request.businessKey);
+    const bucket = this.getOrCreateRouteBucket(bucketKey, quotaContext.service, policy);
 
-    if (sharedPool) {
-      this.getOrCreateSharedPool(sharedPool);
+    if (this.needsSharedPool(quotaContext.service)) {
+      this.getOrCreateSharedPool(TTS_SHARED_POOL_KEY);
     }
 
     this.supersedePending(request.scopeId, request.supersedeKey, coalesceKey);
@@ -177,19 +234,30 @@ class LLMClient {
       if (!request.isBackground && activeShared.entry.request.isBackground) {
         activeShared.entry.request.isBackground = false;
       }
+      if (quotaContext.priority < activeShared.entry.quotaContext.priority) {
+        activeShared.entry.quotaContext.priority = quotaContext.priority;
+        activeShared.entry.quotaContext.origin = quotaContext.origin;
+      }
       return await this.attachSubscriber(activeShared, request);
     }
 
     const subscriberBundle = this.createSubscriber<T>(request);
+    const normalizedRequest: NormalizedLLMRequest<T> = {
+      ...request,
+      route: {
+        platform: quotaContext.platform,
+        service: quotaContext.service,
+        modelBucket: quotaContext.modelBucket
+      }
+    };
     const entry: QueueEntry<T> = {
       id: generateId(),
       seq: ++this.seq,
-      request: { ...request, route },
+      request: normalizedRequest,
       bucketKey,
-      route,
       policy,
-      sharedPool,
-      coalesceKey
+      coalesceKey,
+      quotaContext
     };
     const shared: SharedRequestState<T> = {
       coalesceKey,
@@ -225,10 +293,11 @@ class LLMClient {
 
   private async hydrate() {
     const persisted = await DBUtils.get<PersistedRateState>(RATE_STATE_KEY, {
-      histories: {}
+      histories: {},
+      tokenHistories: {}
     });
 
-    this.persistedHistories = Object.fromEntries(
+    this.quotaHistories.started = Object.fromEntries(
       Object.entries(persisted.histories ?? {}).map(([stateKey, ruleHistory]) => [
         stateKey,
         Object.fromEntries(
@@ -241,18 +310,25 @@ class LLMClient {
         )
       ])
     );
-  }
-
-  private readPersistedHistories(stateKey: string) {
-    const persisted = this.persistedHistories[stateKey] ?? {};
-    return Object.fromEntries(
-      Object.entries(persisted).map(([ruleId, values]) => [ruleId, [...values]])
+    this.quotaHistories.tokens = Object.fromEntries(
+      Object.entries(persisted.tokenHistories ?? {}).map(([stateKey, ruleHistory]) => [
+        stateKey,
+        Object.fromEntries(
+          Object.entries(ruleHistory ?? {}).map(([ruleId, values]) => [
+            ruleId,
+            (Array.isArray(values) ? values : []).filter(
+              (event) =>
+                Number.isFinite(event?.at) && Number.isFinite(event?.amount)
+            )
+          ])
+        )
+      ])
     );
   }
 
   private getOrCreateRouteBucket(
     bucketKey: string,
-    route: LLMRouteKey,
+    service: LLMRouteService,
     policy: RoutePolicy
   ) {
     const existing = this.routeBuckets.get(bucketKey);
@@ -263,33 +339,32 @@ class LLMClient {
 
     const bucket: RouteBucketState = {
       key: bucketKey,
-      route,
+      service,
       policy,
       pending: [],
-      histories: this.readPersistedHistories(bucketKey),
       inFlightCount: 0
     };
     this.routeBuckets.set(bucketKey, bucket);
-    this.pruneHistories(bucket.policy.rules, bucket.histories);
     return bucket;
   }
 
-  private getOrCreateSharedPool(policy: ResolvedSharedPoolPolicy) {
-    const existing = this.sharedPools.get(policy.stateKey);
+  private getOrCreateSharedPool(key: string) {
+    const existing = this.sharedPools.get(key);
     if (existing) {
-      existing.policy = policy;
       return existing;
     }
 
     const pool: SharedPoolState = {
-      key: policy.stateKey,
-      policy,
-      histories: this.readPersistedHistories(policy.stateKey),
+      key,
+      maxActive: TTS_SHARED_POOL_ACTIVE,
       inFlightCount: 0
     };
-    this.sharedPools.set(policy.stateKey, pool);
-    this.pruneHistories(pool.policy.rules, pool.histories);
+    this.sharedPools.set(key, pool);
     return pool;
+  }
+
+  private needsSharedPool(service: LLMRouteService) {
+    return service === 'tts-single' || service === 'tts-multi';
   }
 
   private createSubscriber<T>(request: LLMRequest<T>) {
@@ -415,7 +490,7 @@ class LLMClient {
         break;
       }
       didStart = true;
-      this.startEntry(next.bucket, next.entry);
+      this.startEntry(next.bucket, next.entry, next.selection);
     }
 
     const nextWakeAt = this.computeNextWakeAt();
@@ -429,33 +504,41 @@ class LLMClient {
   }
 
   private findNextRunnableEntry() {
-    let best: { bucket: RouteBucketState; entry: QueueEntry<unknown> } | null = null;
+    let best:
+      | {
+          bucket: RouteBucketState;
+          entry: QueueEntry<unknown>;
+          selection: QuotaSelection;
+        }
+      | null = null;
+
     for (const bucket of this.routeBuckets.values()) {
-      const head = bucket.pending[0];
-      if (!head) {
-        continue;
-      }
-
-      const availability = this.getEntryAvailability(bucket, head.sharedPool);
-      if (!availability.allowed) {
-        continue;
-      }
-
-      if (head.request.isBackground && this.lastBusyAt) {
-        const now = this.clock.now();
-        if (now - this.lastBusyAt < schedulerPolicy.backgroundBusyCooldownMs) {
+      for (const entry of bucket.pending) {
+        const serviceAvailability = this.getServiceAvailability(bucket, entry);
+        if (!serviceAvailability.allowed) {
           continue;
         }
-      }
 
-      if (head.request.isBackground && bucket.policy.maxConcurrency > 1) {
-        if (bucket.inFlightCount >= bucket.policy.maxConcurrency - 1) {
+        const quotaResult = this.quotaManager.selectCandidate(entry.quotaContext);
+        if (!quotaResult.selection) {
           continue;
         }
-      }
 
-      if (!best || head.seq < best.entry.seq) {
-        best = { bucket, entry: head };
+        if (
+          !best ||
+          entry.quotaContext.priority < best.entry.quotaContext.priority ||
+          (entry.quotaContext.priority === best.entry.quotaContext.priority &&
+            quotaResult.selection.softPenalty < best.selection.softPenalty) ||
+          (entry.quotaContext.priority === best.entry.quotaContext.priority &&
+            quotaResult.selection.softPenalty === best.selection.softPenalty &&
+            entry.seq < best.entry.seq)
+        ) {
+          best = {
+            bucket,
+            entry,
+            selection: quotaResult.selection
+          };
+        }
       }
     }
     return best;
@@ -464,18 +547,19 @@ class LLMClient {
   private computeNextWakeAt() {
     let nextWakeAt: number | null = null;
     for (const bucket of this.routeBuckets.values()) {
-      const head = bucket.pending[0];
-      if (!head) {
-        continue;
-      }
+      for (const entry of bucket.pending) {
+        const serviceAvailability = this.getServiceAvailability(bucket, entry);
+        if (!serviceAvailability.allowed) {
+          nextWakeAt = minWake(nextWakeAt, serviceAvailability.nextWakeAt);
+          continue;
+        }
 
-      const availability = this.getEntryAvailability(bucket, head.sharedPool);
-      if (availability.allowed || availability.nextWakeAt === null) {
-        continue;
-      }
+        const quotaResult = this.quotaManager.selectCandidate(entry.quotaContext);
+        if (quotaResult.selection || quotaResult.nextWakeAt === null) {
+          continue;
+        }
 
-      if (nextWakeAt === null || availability.nextWakeAt < nextWakeAt) {
-        nextWakeAt = availability.nextWakeAt;
+        nextWakeAt = minWake(nextWakeAt, quotaResult.nextWakeAt);
       }
     }
     return nextWakeAt;
@@ -509,112 +593,36 @@ class LLMClient {
     }, delay);
   }
 
-  private getEntryAvailability(
+  private getServiceAvailability(
     bucket: RouteBucketState,
-    sharedPoolPolicy: ResolvedSharedPoolPolicy | null
+    entry: QueueEntry<unknown>
   ): AvailabilityResult {
-    const routeAvailability = this.getAvailability(
-      bucket.policy.rules,
-      bucket.histories,
-      bucket.inFlightCount,
-      bucket.policy.maxConcurrency
-    );
-
-    if (!sharedPoolPolicy) {
-      return routeAvailability;
-    }
-
-    const pool = this.getOrCreateSharedPool(sharedPoolPolicy);
-    const poolAvailability = this.getAvailability(
-      pool.policy.rules,
-      pool.histories,
-      pool.inFlightCount
-    );
-
-    if (routeAvailability.allowed && poolAvailability.allowed) {
-      return { allowed: true, nextWakeAt: null };
-    }
-
-    const blockedAvailabilities = [routeAvailability, poolAvailability].filter(
-      (availability) => !availability.allowed
-    );
-    const wakeAts = blockedAvailabilities
-      .map((availability) => availability.nextWakeAt)
-      .filter((value): value is number => value !== null);
-
-    if (wakeAts.length !== blockedAvailabilities.length) {
+    if (bucket.inFlightCount >= bucket.policy.maxConcurrency) {
       return { allowed: false, nextWakeAt: null };
     }
 
-    return {
-      allowed: false,
-      nextWakeAt: Math.max(...wakeAts)
-    };
-  }
-
-  private getAvailability(
-    rules: RateLimitRule[],
-    histories: Record<string, number[]>,
-    inFlightCount: number,
-    maxConcurrency?: number
-  ): AvailabilityResult {
-    this.pruneHistories(rules, histories);
-
-    if (maxConcurrency !== undefined && inFlightCount >= maxConcurrency) {
-      return { allowed: false, nextWakeAt: null };
-    }
-
-    let nextWakeAt: number | null = null;
-    for (const rule of rules) {
-      if (rule.mode === 'active_requests') {
-        if (inFlightCount >= rule.max) {
-          return { allowed: false, nextWakeAt: null };
-        }
-        continue;
-      }
-
-      const timestamps = histories[rule.id] ?? [];
-      if (timestamps.length >= rule.max) {
-        const blockedUntil = timestamps[0] + rule.windowMs;
-        nextWakeAt = nextWakeAt === null ? blockedUntil : Math.max(nextWakeAt, blockedUntil);
+    if (entry.request.isBackground && this.lastBusyAt) {
+      const cooldownUntil =
+        this.lastBusyAt + schedulerPolicy.backgroundBusyCooldownMs;
+      if (this.clock.now() < cooldownUntil) {
+        return { allowed: false, nextWakeAt: cooldownUntil };
       }
     }
 
-    return { allowed: nextWakeAt === null, nextWakeAt };
-  }
-
-  private pruneHistories(
-    rules: RateLimitRule[],
-    histories: Record<string, number[]>
-  ) {
-    const now = this.clock.now();
-    for (const rule of rules) {
-      if (rule.mode !== 'started_in_window') {
-        continue;
+    if (entry.request.isBackground && bucket.policy.maxConcurrency > 1) {
+      if (bucket.inFlightCount >= bucket.policy.maxConcurrency - 1) {
+        return { allowed: false, nextWakeAt: null };
       }
-
-      const existing = histories[rule.id] ?? [];
-      histories[rule.id] = existing.filter(
-        (timestamp) => now - timestamp < rule.windowMs
-      );
     }
-  }
 
-  private recordStarted(
-    rules: RateLimitRule[],
-    histories: Record<string, number[]>
-  ) {
-    const startedAt = this.clock.now();
-    for (const rule of rules) {
-      if (rule.mode !== 'started_in_window') {
-        continue;
+    if (this.needsSharedPool(bucket.service)) {
+      const sharedPool = this.getOrCreateSharedPool(TTS_SHARED_POOL_KEY);
+      if (sharedPool.inFlightCount >= sharedPool.maxActive) {
+        return { allowed: false, nextWakeAt: null };
       }
-
-      const existing = histories[rule.id] ?? [];
-      existing.push(startedAt);
-      histories[rule.id] = existing;
     }
-    this.persistState();
+
+    return { allowed: true, nextWakeAt: null };
   }
 
   private persistState() {
@@ -624,15 +632,16 @@ class LLMClient {
     this.flushing = true;
     queueMicrotask(() => {
       this.flushing = false;
-      void DBUtils.set(
-        RATE_STATE_KEY,
-        clonePersistedState(this.routeBuckets, this.sharedPools)
-      );
+      void DBUtils.set(RATE_STATE_KEY, clonePersistedState(this.quotaHistories));
     });
   }
 
-  private startEntry(bucket: RouteBucketState, entry: QueueEntry<unknown>) {
-    bucket.pending.shift();
+  private startEntry(
+    bucket: RouteBucketState,
+    entry: QueueEntry<unknown>,
+    initialSelection: QuotaSelection
+  ) {
+    bucket.pending = bucket.pending.filter((pending) => pending.id !== entry.id);
     const shared = this.sharedRequests.get(entry.coalesceKey);
     if (!shared || shared.status !== 'pending') {
       this.processQueues();
@@ -644,8 +653,8 @@ class LLMClient {
       return;
     }
 
-    const sharedPool = entry.sharedPool
-      ? this.getOrCreateSharedPool(entry.sharedPool)
+    const sharedPool = this.needsSharedPool(bucket.service)
+      ? this.getOrCreateSharedPool(TTS_SHARED_POOL_KEY)
       : null;
 
     shared.status = 'in-flight';
@@ -653,12 +662,8 @@ class LLMClient {
     if (sharedPool) {
       sharedPool.inFlightCount += 1;
     }
-    this.recordStarted(bucket.policy.rules, bucket.histories);
-    if (sharedPool) {
-      this.recordStarted(sharedPool.policy.rules, sharedPool.histories);
-    }
 
-    void this.executeEntry(bucket, sharedPool, entry)
+    void this.executeEntry(bucket, entry, initialSelection)
       .then((value) => {
         this.settleShared(shared, { ok: true, value });
       })
@@ -676,8 +681,49 @@ class LLMClient {
 
   private async executeEntry<T>(
     bucket: RouteBucketState,
-    sharedPool: SharedPoolState | null,
-    entry: QueueEntry<T>
+    entry: QueueEntry<T>,
+    initialSelection: QuotaSelection
+  ) {
+    const attemptedModels = new Set<string>();
+    let nextSelection: QuotaSelection | null = initialSelection;
+    let lastError: unknown = null;
+
+    while (true) {
+      const selection =
+        nextSelection ?? (await this.waitForCandidate(entry, attemptedModels, lastError));
+      nextSelection = null;
+
+      try {
+        return await this.executeWithCandidate(bucket, entry, selection);
+      } catch (error) {
+        lastError = error;
+        attemptedModels.add(selection.model.id);
+
+        if (isModelNotFoundError(error)) {
+          this.quotaManager.markModelNotFound(selection.model.id);
+        } else if (isBusyOrRateLimitedError(error)) {
+          this.quotaManager.markModelBusy(selection.model.id);
+        } else {
+          throw error;
+        }
+
+        if (!this.hasRemainingCandidate(entry.quotaContext, attemptedModels)) {
+          throw error;
+        }
+
+        const fallback = this.quotaManager.selectCandidate(
+          entry.quotaContext,
+          attemptedModels
+        );
+        nextSelection = fallback.selection;
+      }
+    }
+  }
+
+  private async executeWithCandidate<T>(
+    bucket: RouteBucketState,
+    entry: QueueEntry<T>,
+    selection: QuotaSelection
   ) {
     let attempt = 0;
     const maxAttempts = 1 + bucket.policy.maxRetries;
@@ -687,15 +733,23 @@ class LLMClient {
       attempt += 1;
       try {
         if (attempt > 1) {
-          await this.waitForRetryAllowance(bucket, sharedPool, retryMinDelay);
+          await this.waitForRetryAllowance(
+            selection,
+            entry.quotaContext.estimatedInputTokens,
+            retryMinDelay
+          );
           retryMinDelay = 0;
-          this.recordStarted(bucket.policy.rules, bucket.histories);
-          if (sharedPool) {
-            this.recordStarted(sharedPool.policy.rules, sharedPool.histories);
-          }
         }
 
-        const raw = await this.executePayload(entry.request.payload);
+        this.quotaManager.recordStarted(
+          selection,
+          entry.quotaContext.estimatedInputTokens
+        );
+        this.persistState();
+
+        const raw = await this.executePayload(
+          withPayloadModel(entry.request.payload, selection.model.id)
+        );
         const result = await entry.request.parser(raw);
         this.lastBusyAt = null;
         return result;
@@ -712,47 +766,51 @@ class LLMClient {
     throw new Error('Unreachable LLM retry state.');
   }
 
-  private getStartedWindowAvailability(
-    rules: RateLimitRule[],
-    histories: Record<string, number[]>
+  private async waitForCandidate<T>(
+    entry: QueueEntry<T>,
+    attemptedModels: Set<string>,
+    lastError: unknown
   ) {
-    this.pruneHistories(rules, histories);
-    let nextWakeAt: number | null = null;
-    for (const rule of rules) {
-      if (rule.mode !== 'started_in_window') {
-        continue;
+    while (true) {
+      const result = this.quotaManager.selectCandidate(
+        entry.quotaContext,
+        attemptedModels
+      );
+      if (result.selection) {
+        return result.selection;
       }
 
-      const timestamps = histories[rule.id] ?? [];
-      if (timestamps.length >= rule.max) {
-        const blockedUntil = timestamps[0] + rule.windowMs;
-        nextWakeAt = nextWakeAt === null ? blockedUntil : Math.max(nextWakeAt, blockedUntil);
+      if (result.nextWakeAt === null) {
+        throw lastError ?? new Error('No LLM model candidate is available.');
       }
+
+      await sleep(Math.max(0, result.nextWakeAt - this.clock.now()));
     }
-    return nextWakeAt;
+  }
+
+  private hasRemainingCandidate(
+    context: QuotaRequestContext,
+    attemptedModels: Set<string>
+  ) {
+    return getCandidateModels(context.modelBucket, context.usage).some(
+      (model) => !attemptedModels.has(model.id)
+    );
   }
 
   private async waitForRetryAllowance(
-    bucket: RouteBucketState,
-    sharedPool: SharedPoolState | null,
+    selection: QuotaSelection,
+    estimatedInputTokens: number,
     minDelayMs: number
   ) {
     while (true) {
       const now = this.clock.now();
-      const routeWakeAt = this.getStartedWindowAvailability(
-        bucket.policy.rules,
-        bucket.histories
+      const availability = this.quotaManager.getRulesAvailability(
+        selection.hardRules,
+        estimatedInputTokens
       );
-      const poolWakeAt = sharedPool
-        ? this.getStartedWindowAvailability(
-            sharedPool.policy.rules,
-            sharedPool.histories
-          )
-        : null;
       const retryAt = Math.max(
         now + minDelayMs,
-        routeWakeAt ?? now,
-        poolWakeAt ?? now
+        availability.nextWakeAt ?? now
       );
       const delay = Math.max(0, retryAt - now);
       if (delay === 0) {
@@ -766,11 +824,38 @@ class LLMClient {
 
   private async executePayload(payload: LLMPayload) {
     if (payload.kind === 'generate-content') {
-      return await this.ai.models.generateContent(payload.params);
+      const model = payload.params.model;
+      if (!model) {
+        throw new Error('Missing model for generateContent payload.');
+      }
+      return await this.ai.models.generateContent({
+        ...payload.params,
+        model
+      });
     }
     throw new Error(`Unsupported LLM payload kind: ${(payload as LLMPayload).kind}`);
   }
 }
+
+const withPayloadModel = (payload: LLMPayload, model: string): LLMPayload => {
+  if (payload.kind === 'generate-content') {
+    return {
+      ...payload,
+      params: {
+        ...payload.params,
+        model
+      }
+    };
+  }
+  return payload;
+};
+
+const minWake = (current: number | null, candidate: number | null) => {
+  if (candidate === null) {
+    return current;
+  }
+  return current === null ? candidate : Math.min(current, candidate);
+};
 
 let sharedClient: LLMClient | null = null;
 

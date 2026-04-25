@@ -98,12 +98,16 @@ export function ListeningDictationModule({ onBack }: { onBack: () => void }) {
 
           const result = await fetchGeminiText(prompt, 0.9, 2000, schema, null, null, {
             scopeId: requestScope.scopeId,
-            supersedeKey: 'dictation:generate'
+            supersedeKey: 'dictation:generate',
+            origin: 'ui',
+            sceneKey: 'dictation:generate'
           });
           const tokens = processDictationText(result.text);
           const audio = await fetchNeuralTTS('Charon', result.text, null, {
             scopeId: requestScope.scopeId,
-            supersedeKey: 'dictation:generate-tts'
+            supersedeKey: 'dictation:generate-tts',
+            origin: 'ui',
+            sceneKey: 'dictation:tts'
           });
           return { ...result, tokens, audioUrl: audio };
         }
@@ -518,7 +522,9 @@ export function ListeningPracticeModule({ onBack }: { onBack: () => void }) {
 
           const data = await fetchGeminiText(prompt, 0.9, 2000, schema, null, null, {
             scopeId: requestScope.scopeId,
-            supersedeKey: 'listening:generate'
+            supersedeKey: 'listening:generate',
+            origin: 'ui',
+            sceneKey: 'listening:generate'
           });
           if (!data || !data.transcript) {
             throw new Error('Invalid output format from LLM');
@@ -526,7 +532,9 @@ export function ListeningPracticeModule({ onBack }: { onBack: () => void }) {
 
           const audioUrl = await fetchConversationTTS(data.transcript, null, {
             scopeId: requestScope.scopeId,
-            supersedeKey: 'listening:generate-tts'
+            supersedeKey: 'listening:generate-tts',
+            origin: 'ui',
+            sceneKey: 'listening:tts'
           });
           if (!audioUrl) {
             throw new Error('Audio generation format failed');
@@ -607,7 +615,9 @@ export function ListeningPracticeModule({ onBack }: { onBack: () => void }) {
 
       const evaluationData = await fetchGeminiText(prompt, 0.4, 2000, schema, null, validator, {
         scopeId: requestScope.scopeId,
-        supersedeKey: 'listening:evaluate'
+        supersedeKey: 'listening:evaluate',
+        origin: 'ui',
+        sceneKey: 'listening:evaluate'
       });
       if (!requestScope.isSessionCurrent(session)) {
         return;

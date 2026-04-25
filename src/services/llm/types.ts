@@ -1,8 +1,23 @@
 export interface LLMRouteKey {
   platform: string;
   service: string;
-  model: string;
+  model?: string;
+  modelBucket?: LLMModelBucket;
 }
+
+export type LLMUsage = 'text' | 'tts' | 'transcription' | 'live' | 'image';
+
+export type LLMOrigin = 'ui' | 'preload' | 'retry' | 'system';
+
+export type LLMModelBucket = 'text' | 'tts';
+
+export type LLMRouteService =
+  | 'text'
+  | 'evaluation'
+  | 'chat'
+  | 'tts-single'
+  | 'tts-multi'
+  | 'transcription';
 
 export interface StartedInWindowRateLimitRule {
   id: string;
@@ -135,7 +150,7 @@ export interface LLMRequestMeta {
 export interface GenerateContentPayload {
   kind: 'generate-content';
   params: {
-    model: string;
+    model?: string;
     contents: unknown;
     config?: Record<string, unknown>;
   };
@@ -152,8 +167,14 @@ export interface LLMRequest<T> {
   parser: (raw: unknown) => Promise<T> | T;
   meta?: LLMRequestMeta;
   isBackground?: boolean;
+  usage?: LLMUsage;
+  sceneKey?: string;
+  origin?: LLMOrigin;
+  priority?: number;
+  estimatedInputTokens?: number;
 }
 
 export interface PersistedRateState {
   histories: Record<string, Record<string, number[]>>;
+  tokenHistories?: Record<string, Record<string, Array<{ at: number; amount: number }>>>;
 }

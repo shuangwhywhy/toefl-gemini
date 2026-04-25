@@ -19,14 +19,7 @@ import type {
   ResolvedSharedPoolPolicy,
   StartedInWindowRateLimitRule
 } from './types';
-
-export const GEMINI_PLATFORM = 'gemini';
-export const TEXT_MODEL =
-  import.meta.env.VITE_GEMINI_TEXT_MODEL ?? 'gemini-2.5-flash';
-export const TTS_MODEL =
-  import.meta.env.VITE_GEMINI_TTS_MODEL ?? 'gemini-2.5-flash-preview-tts';
-export const TRANSCRIBE_MODEL =
-  import.meta.env.VITE_GEMINI_TRANSCRIBE_MODEL ?? TEXT_MODEL;
+export { GEMINI_PLATFORM } from './modelCatalog';
 
 const DURATION_PATTERN = /^(\d+)(s|m|h|d)$/;
 
