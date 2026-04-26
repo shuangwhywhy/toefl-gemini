@@ -159,7 +159,11 @@ export const normalizeInterviewTrainingSession = (
   )
 });
 
-export function consumeInterviewPreloadCacheIfAvailable(): InterviewSessionData | null {
+export async function consumeInterviewPreloadCacheIfAvailable(): Promise<InterviewSessionData | null> {
+  if (PreloadPipeline.inFlight.interview_preload) {
+    await PreloadPipeline.inFlight.interview_preload;
+  }
+
   const cached = PreloadPipeline.cache.interview as InterviewSessionData | null;
   if (!cached) {
     return null;
@@ -182,6 +186,7 @@ export async function loadOrCreateTrainingSession(options: {
   signal?: AbortSignal | null;
   supersedeKey?: string;
   firstTtsSupersedeKey?: string;
+  seed?: string;
 }): Promise<LoadOrCreateTrainingSessionResult> {
   const activeSession = await loadActiveInterviewTrainingSession();
 
@@ -205,7 +210,7 @@ export async function loadOrCreateTrainingSession(options: {
     };
   }
 
-  const cachedInterview = consumeInterviewPreloadCacheIfAvailable();
+  const cachedInterview = await consumeInterviewPreloadCacheIfAvailable();
   if (cachedInterview) {
     try {
       const session = createSessionFromGeneratedInterview(cachedInterview, {
@@ -229,7 +234,8 @@ export async function loadOrCreateTrainingSession(options: {
     supersedeKey: options.supersedeKey ?? 'interview-training:generate',
     firstTtsSupersedeKey:
       options.firstTtsSupersedeKey ?? 'interview-training:first-tts',
-    mode: 'manual'
+    mode: 'manual',
+    seed: options.seed
   });
   const session = createSessionFromGeneratedInterview(generated, {
     source: 'fresh_generation',
@@ -249,8 +255,9 @@ export async function createNewTrainingSession(options: {
   signal?: AbortSignal | null;
   supersedeKey?: string;
   firstTtsSupersedeKey?: string;
+  seed?: string;
 }): Promise<Extract<LoadOrCreateTrainingSessionResult, { kind: 'created_from_preload' | 'created_fresh' }>> {
-  const cachedInterview = consumeInterviewPreloadCacheIfAvailable();
+  const cachedInterview = await consumeInterviewPreloadCacheIfAvailable();
   if (cachedInterview) {
     try {
       const session = createSessionFromGeneratedInterview(cachedInterview, {
@@ -274,7 +281,8 @@ export async function createNewTrainingSession(options: {
     supersedeKey: options.supersedeKey ?? 'interview-training:new-generate',
     firstTtsSupersedeKey:
       options.firstTtsSupersedeKey ?? 'interview-training:new-first-tts',
-    mode: 'manual'
+    mode: 'manual',
+    seed: options.seed
   });
   const session = createSessionFromGeneratedInterview(generated, {
     source: 'fresh_generation',

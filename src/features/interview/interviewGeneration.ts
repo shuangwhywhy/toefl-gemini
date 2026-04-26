@@ -154,9 +154,7 @@ export const generateInterviewSession = async ({
       disableJsonFixer: true,
       businessContext: {
         task: 'interview',
-        promptVersion: INTERVIEW_PROMPT_VERSION,
-        seed,
-        mode
+        promptVersion: INTERVIEW_PROMPT_VERSION
       }
     }
   );

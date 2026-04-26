@@ -17,6 +17,7 @@ export const PreloadPipeline = {
   currentController: null as AbortController | null,
   failedFingerprints: new Set<string>(),
   lastFingerprintByName: {} as Record<string, string>,
+  inFlight: {} as Record<string, Promise<void> | null>,
   cache: {
     shadow: null,
     interview: null,
@@ -75,9 +76,12 @@ export const PreloadPipeline = {
       }
 
       this.currentController = new AbortController();
+      const taskPromise = task.fn(this.currentController.signal);
+      this.inFlight[task.name] = taskPromise;
+
       try {
         console.log(`[Pipeline] 运行预载任务: ${task.name}`);
-        await task.fn(this.currentController.signal);
+        await taskPromise;
         this.failedFingerprints.delete(
           this.getTaskKey(task.name, task.fingerprint)
         );
@@ -90,6 +94,8 @@ export const PreloadPipeline = {
           );
           console.warn(`[Pipeline] 后台任务异常中断: ${task.name}`, error);
         }
+      } finally {
+        this.inFlight[task.name] = null;
       }
       this.currentController = null;
     }

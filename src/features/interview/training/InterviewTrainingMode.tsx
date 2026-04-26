@@ -166,6 +166,7 @@ export function InterviewTrainingMode({ onBack }: { onBack: () => void }) {
     initialInterviewTrainingState
   );
   const [showLegacyMock, setShowLegacyMock] = useState(false);
+
   const {
     scopeId,
     beginSession,
