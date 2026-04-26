@@ -826,6 +826,7 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
                 showSpeedControl={true}
                 showTextToggle={true}
                 highlightText={true}
+                forceStop={isRecording}
 
                 onShowTextChange={setShowText}
                 onEnsureAudio={async () => {

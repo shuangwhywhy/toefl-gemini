@@ -80,7 +80,7 @@ export function buildTrainingEvaluationPrompt(input: {
 - The learner's CURRENT answer is attached as an AUDIO part after this prompt.
 - Evaluate the current answer based on that raw audio.
 - Do not require or rely on a current-answer transcript as the evaluation input.
-- You MUST return displayTranscript or displayTranscriptSegments for UI display and future cross-question context. Failure to provide a transcript will result in an error.`
+- You MUST return displayTranscriptSegments for UI display and future cross-question context. Failure to provide it will result in an error.`
     : `Current answer input:
 - The learner used the text fallback, so the CURRENT answer is the text below.
 - Mark this as text fallback in your analysis where relevant.
@@ -121,7 +121,7 @@ ${currentAnswerInstruction}
 Additional evaluation rules:
 - For audio submissions, treat the AUDIO part as the source of truth for the current answer.
 - Do not use a generated display transcript as the current-answer evaluation input.
-- If cross-question context is provided in a separate text part, use it only to judge whether this answer is logically consistent with other answers in the same interview set.
+- If cross-question context is provided in a separate text part, use it only to judge whether this answer is logically consistent with other answers in the same interview set. Only populate crossQuestionConsistency if there are previous answers to compare to. Do not evaluate consistency against the current answer itself.
 - Other questions' raw audio is intentionally not provided.
 - If timing policy is enabled, analyze content before and after 45 seconds. In real scoring, content after 45 seconds may be too late, but training feedback should still explain its value.
 - Judge whether the learner likely answered from listening by using prompt visibility, listen count, and whether the answer fits the spoken prompt naturally.
@@ -275,5 +275,5 @@ export const TRAINING_EVALUATION_RESPONSE_SCHEMA = {
     },
     details: { type: 'OBJECT' }
   },
-  required: ['score', 'mainIssue', 'feedbackSummary', 'details']
+  required: ['score', 'mainIssue', 'feedbackSummary', 'displayTranscriptSegments', 'details']
 };

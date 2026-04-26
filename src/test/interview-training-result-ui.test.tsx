@@ -117,5 +117,30 @@ describe('Interview Training Result UI Cards', () => {
       expect(screen.getByText(/Just text fallback/)).toBeInTheDocument();
       expect(screen.getByText(/45s cutoff marker unavailable/)).toBeInTheDocument();
     });
+
+    it('only renders 45s cutoff marker once', () => {
+      render(
+        <TimedTranscriptView
+          displayTranscriptSegments={[
+            { startSec: 46, endSec: 50, text: 'Late 1', afterCutoff: true },
+            { startSec: 51, endSec: 55, text: 'Late 2', afterCutoff: true },
+          ]}
+        />
+      );
+      const markers = screen.queryAllByText(/45s cutoff/i);
+      expect(markers.length).toBe(1);
+    });
+
+    it('applies line-through class to afterCutoff segments', () => {
+      render(
+        <TimedTranscriptView
+          displayTranscriptSegments={[
+            { startSec: 46, endSec: 50, text: 'Strikethrough text', afterCutoff: true },
+          ]}
+        />
+      );
+      const segment = screen.getByText(/Strikethrough text/).closest('p');
+      expect(segment).toHaveClass('line-through');
+    });
   });
 });

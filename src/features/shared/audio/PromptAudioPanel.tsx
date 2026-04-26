@@ -1,3 +1,4 @@
+import React, { useEffect } from 'react';
 import {
   Eye,
   EyeOff,
@@ -30,6 +31,7 @@ export type PromptAudioPanelProps = {
   showSpeedControl?: boolean;
   showTextToggle?: boolean;
   highlightText?: boolean;
+  forceStop?: boolean;
 
   extraTopControls?: React.ReactNode;
   extraBottomControls?: React.ReactNode;
@@ -57,6 +59,7 @@ export function PromptAudioPanel({
   showSpeedControl = true,
   showTextToggle = true,
   highlightText = true,
+  forceStop = false,
 
   extraTopControls,
   extraBottomControls,
@@ -74,6 +77,12 @@ export function PromptAudioPanel({
     onListenCompleted
   });
   const isLoading = player.isLoading || audioStatus === 'loading';
+
+  useEffect(() => {
+    if (forceStop) {
+      player.stop();
+    }
+  }, [forceStop, player]);
 
   return (
     <div className="space-y-4">
