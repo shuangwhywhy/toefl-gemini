@@ -353,6 +353,7 @@ Transcript unavailable. Retry evaluation if needed.
 ```ts
 type TimeAnalysisCardProps = {
   analysis: TimeAnalysis | null;
+  timingEnabled?: boolean;
 };
 ```
 
@@ -406,7 +407,15 @@ overtime -> Over 45s
 
 ### 注意
 
-如果当前 stage 不是 timed stage，但模型返回了 `timeAnalysis`，可以显示简化版本；不过最好在 prompt 里继续约束：非 timed stage 不要过度做 45 秒分析。
+如果当前 stage 不是 timed stage，但模型返回了 `timeAnalysis`，组件应通过 `timingEnabled?: boolean` 进入简化展示模式，避免在 `english_units` / `full_english_answer` / `vocabulary_upgrade` 里过度强调 45 秒压力。
+
+简化展示模式建议只显示：
+
+- durationSec
+- 简短 pacingAdvice
+- 非考试限时阶段提示
+
+不要突出 45 秒 cutoff，也不要使用强警示色。Prompt 层也应继续约束：非 timed stage 不要过度做 45 秒分析。
 
 ---
 
@@ -489,19 +498,21 @@ suggestedFix
 
 ### 渲染规则
 
-如果没有 context：
+不要只根据 `crossQuestionConsistency` 对象是否存在来判断是否有上下文，因为 prompt schema 可能总是返回这个对象。应以 `includedQuestionIds` 作为真实 context 判断依据。
+
+如果 `includedQuestionIds.length === 0`，当作无 context / 无可分析对象：
 
 ```txt
 Cross-question consistency will appear after other answered questions are available.
 ```
 
-如果有 context 但没有 contradictions：
+如果 `includedQuestionIds.length > 0 && contradictions.length === 0`，当作有 context 且无明显矛盾：
 
 ```txt
 No obvious contradictions across answered questions.
 ```
 
-如果有 contradictions：
+如果 `contradictions.length > 0`，展示矛盾列表和 suggestedFix：
 
 ```txt
 Contradictions found:
@@ -509,6 +520,8 @@ Contradictions found:
 2. ...
 Suggested fix: ...
 ```
+
+这样可以避免 UI 把“没有上下文”误展示成“一致性分析通过”。
 
 ### 注意
 
@@ -651,6 +664,7 @@ src/test/interview-training-ui.test.tsx
 3. `slightly_long` 显示 wrap it up。
 4. `overtime` 显示 over 45s。
 5. `beforeCutoffSummary` / `afterCutoffSummary` / `pacingAdvice` 正确显示。
+6. `timingEnabled=false` 时进入简化展示模式，不突出 45 秒 cutoff。
 
 ### QuestionComprehensionCard
 
@@ -665,9 +679,9 @@ src/test/interview-training-ui.test.tsx
 
 覆盖：
 
-1. 没有 context 时轻量提示。
-2. 有 context 且无 contradictions。
-3. 有 contradictions 时列出矛盾和 suggested fix。
+1. `includedQuestionIds.length === 0` 时按无 context 处理。
+2. `includedQuestionIds.length > 0 && contradictions.length === 0` 时显示无明显矛盾。
+3. `contradictions.length > 0` 时列出矛盾和 suggested fix。
 
 ### Shared PromptAudioPanel
 
@@ -801,41 +815,69 @@ P1 完成后，应满足以下标准。
 evaluationDetails.ts
 ```
 
-## Step 2：实现三张分析卡片
+## Step 2：实现 TimeAnalysisCard 并同步补测试
 
-顺序：
+先实现 timing 展示，并覆盖 timed / non-timed 两种模式。
+
+产物：
 
 ```txt
 TimeAnalysisCard
-QuestionComprehensionCard
-CrossQuestionConsistencyCard
+TimeAnalysisCard tests
 ```
 
-原因：这三个组件相对独立，风险低。
+## Step 3：实现 QuestionComprehensionCard 并同步补测试
 
-## Step 3：实现 TimedTranscriptView
+实现听题理解检查展示，并覆盖 prompt visibility / listen count / likely answered from listening。
+
+产物：
+
+```txt
+QuestionComprehensionCard
+QuestionComprehensionCard tests
+```
+
+## Step 4：实现 CrossQuestionConsistencyCard 并同步补测试
+
+实现跨题一致性展示，并覆盖无 context、有 context 无矛盾、有矛盾三种状态。
+
+产物：
+
+```txt
+CrossQuestionConsistencyCard
+CrossQuestionConsistencyCard tests
+```
+
+## Step 5：实现 TimedTranscriptView 并同步补测试
 
 完成 45 秒 cutoff 可视化。
 
 优先支持 segments，再支持 displayTranscript fallback。
 
-## Step 4：重构 LatestFeedbackPanel
+产物：
 
-把旧的 inline render 函数替换成新组件。
+```txt
+TimedTranscriptView
+TimedTranscriptView tests
+```
 
-## Step 5：补 result UI tests
+## Step 6：重构 LatestFeedbackPanel
 
-先锁住新结果体验。
+把旧的 inline render 函数替换成新组件。`LatestFeedbackPanel` 只做组合、布局和 raw details 折叠。
 
-## Step 6：扩展 PromptAudioPanel props
+## Step 7：PR1 收口
+
+确认 result feedback cards 的用户体验和组件边界稳定。
+
+## Step 8：扩展 PromptAudioPanel props
 
 让 shared audio panel 更通用。
 
-## Step 7：迁移 ShadowingModule
+## Step 9：迁移 ShadowingModule
 
 替换 Shadowing 顶部音频 UI。
 
-## Step 8：补 shared audio tests
+## Step 10：补 shared audio tests
 
 确保 Interview 和 Shadowing 都不会回退。
 
