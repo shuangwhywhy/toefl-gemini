@@ -1,6 +1,6 @@
 name: toefl-gemini
 options:
-  bundleIdPrefix: com.openai.toefl-gemini
+  bundleIdPrefix: com.shuangwhywhy.toefl-gemini
   deploymentTarget:
     iOS: 14.0
 fileGroups: [../../src]
@@ -11,7 +11,7 @@ settingGroups:
   app:
     base:
       PRODUCT_NAME: AI TOEFL Trainer
-      PRODUCT_BUNDLE_IDENTIFIER: com.openai.toefl-gemini
+      PRODUCT_BUNDLE_IDENTIFIER: com.shuangwhywhy.toefl-gemini
 targetTemplates:
   app:
     type: application
