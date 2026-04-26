@@ -284,6 +284,13 @@ export async function cleanupOldAudioBlobs(options: {
   }
 }
 
+export async function getAudioBlob(
+  blobId: string
+): Promise<Blob | null> {
+  const record = await interviewTrainingDB.audioBlobs.get(blobId);
+  return record?.blob ?? null;
+}
+
 export async function clearInterviewTrainingData(): Promise<void> {
   await interviewTrainingDB.transaction(
     'rw',

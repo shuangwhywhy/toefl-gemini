@@ -138,6 +138,14 @@ export async function evaluateInterviewTrainingStage(input: {
     }
   });
 
+  if (
+    input.inputType === 'audio' &&
+    !result.displayTranscript &&
+    (!result.displayTranscriptSegments || result.displayTranscriptSegments.length === 0)
+  ) {
+    throw new Error('Evaluation failed to produce a transcript. Please try again.');
+  }
+
   return {
     ...result,
     score: clampScore(result.score),

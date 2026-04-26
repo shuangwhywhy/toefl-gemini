@@ -128,13 +128,20 @@ const normalizeTrainingQuestion = (
   question: InterviewTrainingQuestion,
   voice: string
 ): InterviewTrainingQuestion => {
-  const audioUrl = question.promptAudio?.audioUrl;
+  let audioUrl = question.promptAudio?.audioUrl;
+  let status = question.promptAudio?.status;
+
+  if (audioUrl?.startsWith('blob:')) {
+    audioUrl = undefined;
+    status = 'idle';
+  }
+
   return {
     ...question,
     promptAudio: {
       voice: question.promptAudio?.voice ?? voice,
       audioUrl,
-      status: question.promptAudio?.status ?? (audioUrl ? 'ready' : 'idle')
+      status: status ?? (audioUrl ? 'ready' : 'idle')
     },
     promptUsage: normalizeQuestionPromptUsage(question.promptUsage),
     stages: question.stages,

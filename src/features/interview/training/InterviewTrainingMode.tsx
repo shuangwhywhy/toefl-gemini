@@ -320,7 +320,19 @@ export function InterviewTrainingMode({ onBack }: { onBack: () => void }) {
     }
 
     if (question.promptAudio?.audioUrl) {
-      return question.promptAudio.audioUrl;
+      const url = question.promptAudio.audioUrl;
+      if (url.startsWith('blob:')) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) {
+            return url;
+          }
+        } catch {
+          // Stale blob, fall through to re-fetch
+        }
+      } else {
+        return url;
+      }
     }
 
     await updateQuestionPromptAudio(questionId, { status: 'loading' });
@@ -572,6 +584,106 @@ export function InterviewTrainingMode({ onBack }: { onBack: () => void }) {
   const submitAudioAttempt = async (audioBlob: Blob, durationSec: number) =>
     submitAttempt({ inputType: 'audio', audioBlob, durationSec });
 
+  const retryAttemptEvaluation = async (attemptId: string) => {
+    const attempt = state.attempts.find((a) => a.id === attemptId);
+    if (!attempt || !state.session || !activeQuestion) {
+      return;
+    }
+
+    let audioBlob: Blob | undefined;
+    if (attempt.inputType === 'audio') {
+      if (attempt.audioBlobId) {
+        const { getAudioBlob } = await import('../../../services/interviewTrainingPersistence');
+        const blob = await getAudioBlob(attempt.audioBlobId);
+        if (blob) {
+          audioBlob = blob;
+        }
+      }
+      if (!audioBlob) {
+        dispatch({
+          type: 'ERROR_SET',
+          error: 'Original audio could not be found. Please record a new attempt.'
+        });
+        return;
+      }
+    }
+
+    dispatch({ type: 'SUBMITTING_SET', isSubmitting: true });
+
+    let attemptForEvaluation: TrainingAttempt = {
+      ...attempt,
+      status: 'evaluating',
+      updatedAt: new Date().toISOString()
+    };
+
+    try {
+      attemptForEvaluation = await saveTrainingAttempt(attemptForEvaluation);
+      dispatch({ type: 'ATTEMPT_UPDATED', attempt: attemptForEvaluation });
+
+      const crossQuestionTextContext = buildCrossQuestionTextContext({
+        session: state.session,
+        currentQuestionId: activeQuestion.id,
+        currentStage: attemptForEvaluation.stage,
+        attempts: state.attempts.map((a) => (a.id === attemptForEvaluation.id ? attemptForEvaluation : a)),
+        evaluations: state.evaluations
+      });
+
+      const result = await evaluateInterviewTrainingStage({
+        session: state.session,
+        question: activeQuestion,
+        stage: attemptForEvaluation.stage,
+        inputType: attemptForEvaluation.inputType,
+        transcript: attemptForEvaluation.transcript,
+        audioBlob,
+        durationSec: attemptForEvaluation.durationSec,
+        promptUsage: attemptForEvaluation.promptUsage,
+        timingWindow: attemptForEvaluation.timingWindow,
+        crossQuestionTextContext,
+        attemptId: attemptForEvaluation.id,
+        scopeId
+      });
+
+      const evaluation = createEvaluation({ attempt: attemptForEvaluation, result });
+      const completion = await completeAttemptEvaluation({
+        attemptId: attemptForEvaluation.id,
+        evaluation
+      });
+      const updatedAttempt: TrainingAttempt = {
+        ...attemptForEvaluation,
+        evaluationId: evaluation.id,
+        status: 'evaluated',
+        updatedAt: new Date().toISOString()
+      };
+      const latestSession = completion.promotedToLatest
+        ? await loadActiveInterviewTrainingSession()
+        : null;
+
+      dispatch({
+        type: 'EVALUATION_ADDED',
+        evaluation,
+        attempt: updatedAttempt,
+        session: latestSession ?? undefined
+      });
+    } catch (error) {
+      const failedAttempt: TrainingAttempt = {
+        ...attemptForEvaluation,
+        status: 'failed',
+        updatedAt: new Date().toISOString()
+      };
+      await saveTrainingAttempt(failedAttempt);
+      dispatch({ type: 'ATTEMPT_UPDATED', attempt: failedAttempt });
+      dispatch({
+        type: 'ERROR_SET',
+        error: buildRetryAwareMessage(
+          'This retry attempt could not be evaluated.',
+          error
+        )
+      });
+    } finally {
+      dispatch({ type: 'SUBMITTING_SET', isSubmitting: false });
+    }
+  };
+
   const startNewTrainingSet = async () => {
     dispatch({ type: 'SUBMITTING_SET', isSubmitting: true });
     const token = invalidateSession();
@@ -761,7 +873,10 @@ export function InterviewTrainingMode({ onBack }: { onBack: () => void }) {
                 void goToRecommendation(recommendation)
               }
             />
-            <AttemptHistory attempts={activeAttempts} />
+            <AttemptHistory 
+              attempts={activeAttempts} 
+              onRetryAttempt={retryAttemptEvaluation} 
+            />
           </aside>
         </div>
       </div>

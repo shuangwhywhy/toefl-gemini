@@ -80,7 +80,7 @@ export function buildTrainingEvaluationPrompt(input: {
 - The learner's CURRENT answer is attached as an AUDIO part after this prompt.
 - Evaluate the current answer based on that raw audio.
 - Do not require or rely on a current-answer transcript as the evaluation input.
-- Return displayTranscript or displayTranscriptSegments for UI display and future cross-question context.`
+- You MUST return displayTranscript or displayTranscriptSegments for UI display and future cross-question context. Failure to provide a transcript will result in an error.`
     : `Current answer input:
 - The learner used the text fallback, so the CURRENT answer is the text below.
 - Mark this as text fallback in your analysis where relevant.
