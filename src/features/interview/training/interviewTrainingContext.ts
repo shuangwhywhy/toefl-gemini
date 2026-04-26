@@ -108,18 +108,9 @@ const isEligibleAttempt = (
     return false;
   }
 
-  if (
-    attempt.status === 'failed' ||
-    attempt.status === 'recorded' ||
-    attempt.status === 'recording'
-  ) {
-    return false;
-  }
-
-  const now = new Date().getTime();
-  const attemptTime = new Date(attempt.createdAt).getTime();
-  const isExceptionallyOld = now - attemptTime > 12 * 60 * 60 * 1000;
-  if (isExceptionallyOld) {
+  const allowedStatus =
+    attempt.status === 'evaluating' || attempt.status === 'evaluated';
+  if (!allowedStatus) {
     return false;
   }
 
