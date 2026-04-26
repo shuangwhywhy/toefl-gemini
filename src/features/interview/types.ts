@@ -131,7 +131,7 @@ export type TrainingAttempt = {
 export type TimeAnalysis = {
   durationSec: number;
   cutoffSec: number;
-  category: 'too_short' | 'good' | 'slightly_long' | 'overtime';
+  category: 'too_short' | 'good' | 'slightly_long' | 'overtime' | 'unknown';
   beforeCutoffSummary: string;
   afterCutoffSummary?: string;
   pacingAdvice: string;

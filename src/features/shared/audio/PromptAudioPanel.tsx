@@ -78,11 +78,12 @@ export function PromptAudioPanel({
   });
   const isLoading = player.isLoading || audioStatus === 'loading';
 
+  const stopPlayer = player.stop;
   useEffect(() => {
     if (forceStop) {
-      player.stop();
+      stopPlayer();
     }
-  }, [forceStop, player]);
+  }, [forceStop, stopPlayer]);
 
   return (
     <div className="space-y-4">

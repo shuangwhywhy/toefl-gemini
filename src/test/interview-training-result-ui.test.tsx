@@ -95,6 +95,21 @@ describe('Interview Training Result UI Cards', () => {
       expect(screen.getByText(/Contradiction 1/)).toBeInTheDocument();
       expect(screen.getByText(/Fix it/)).toBeInTheDocument();
     });
+
+    it('renders success message when there is context but no contradictions', () => {
+      render(
+        <CrossQuestionConsistencyCard
+          consistency={{
+            includedQuestionIds: ['q1'],
+            contradictions: [],
+            consistencySummary: 'Everything looks consistent.',
+            suggestedFix: '',
+          }}
+        />
+      );
+      expect(screen.getByText(/Everything looks consistent./)).toBeInTheDocument();
+      expect(screen.getByText(/No obvious contradictions across answered questions/)).toBeInTheDocument();
+    });
   });
 
   describe('TimedTranscriptView', () => {
