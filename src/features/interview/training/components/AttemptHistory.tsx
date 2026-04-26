@@ -23,7 +23,10 @@ export function AttemptHistory({ attempts }: { attempts: TrainingAttempt[] }) {
               <span>{new Date(attempt.createdAt).toLocaleString()}</span>
             </div>
             <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-slate-700">
-              {attempt.transcript || '(No transcript)'}
+              {attempt.transcript ||
+                (attempt.inputType === 'audio'
+                  ? `Audio answer${attempt.durationSec ? ` · ${attempt.durationSec}s` : ''}`
+                  : '(No transcript)')}
             </p>
           </div>
         ))}

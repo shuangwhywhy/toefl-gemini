@@ -1,7 +1,10 @@
 import type {
   InterviewTrainingQuestion,
-  InterviewTrainingStage
+  InterviewTrainingStage,
+  QuestionPromptUsage,
+  TimingWindow
 } from '../features/interview/types';
+import type { CrossQuestionTextContext } from '../features/interview/training/interviewTrainingContext';
 
 export const TRAINING_STAGE_LABELS: Record<InterviewTrainingStage, string> = {
   thinking_structure: 'Structure First',
@@ -61,9 +64,30 @@ export function buildTrainingEvaluationPrompt(input: {
   topic: string;
   question: InterviewTrainingQuestion;
   stage: InterviewTrainingStage;
-  transcript: string;
+  inputType: 'audio' | 'text';
+  transcript?: string;
   durationSec?: number;
+  promptUsage?: QuestionPromptUsage;
+  timingWindow?: TimingWindow;
+  hasRawAudio: boolean;
+  crossQuestionTextContext?: CrossQuestionTextContext | null;
 }) {
+  const promptUsage = input.promptUsage;
+  const timingWindow = input.timingWindow;
+  const hasCrossQuestionContext = Boolean(input.crossQuestionTextContext?.entries.length);
+  const currentAnswerInstruction = input.hasRawAudio
+    ? `Current answer input:
+- The learner's CURRENT answer is attached as an AUDIO part after this prompt.
+- Evaluate the current answer based on that raw audio.
+- Do not require or rely on a current-answer transcript as the evaluation input.
+- Return displayTranscript or displayTranscriptSegments for UI display and future cross-question context.`
+    : `Current answer input:
+- The learner used the text fallback, so the CURRENT answer is the text below.
+- Mark this as text fallback in your analysis where relevant.
+
+Text fallback answer:
+${input.transcript || '(empty response)'}`;
+
   return `Return strict JSON only.
 Do not wrap JSON in markdown.
 Do not include commentary outside JSON.
@@ -75,12 +99,34 @@ Current question id: ${input.question.id}
 Current question: ${input.question.question}
 Current stage: ${input.stage} (${TRAINING_STAGE_LABELS[input.stage]})
 Duration seconds: ${input.durationSec ?? 'not provided'}
+Current answer has raw audio: ${input.hasRawAudio ? 'yes' : 'no'}
+Prompt text visible on submit: ${promptUsage?.textVisibleOnSubmit ?? 'unknown'}
+Prompt text was ever shown: ${promptUsage?.textWasEverShown ?? 'unknown'}
+Prompt completed listen count: ${promptUsage?.listenCount ?? 'unknown'}
+Prompt playback started count: ${promptUsage?.playbackStartedCount ?? 'unknown'}
+Prompt playback completed count: ${promptUsage?.playbackCompletedCount ?? 'unknown'}
+Timed answer policy enabled: ${timingWindow?.enabled ?? false}
+Ideal answer window: ${
+    timingWindow?.enabled
+      ? `${timingWindow.idealStartSec}-${timingWindow.idealEndSec}s, soft max ${timingWindow.softMaxSec}s`
+      : 'not enabled for this stage'
+  }
+Cross-question text context provided: ${hasCrossQuestionContext ? 'yes' : 'no'}
 
 Stage instructions:
 ${stageSpecificInstruction[input.stage]}
 
-Learner transcript:
-${input.transcript || '(empty response)'}
+${currentAnswerInstruction}
+
+Additional evaluation rules:
+- For audio submissions, treat the AUDIO part as the source of truth for the current answer.
+- Do not use a generated display transcript as the current-answer evaluation input.
+- If cross-question context is provided in a separate text part, use it only to judge whether this answer is logically consistent with other answers in the same interview set.
+- Other questions' raw audio is intentionally not provided.
+- If timing policy is enabled, analyze content before and after 45 seconds. In real scoring, content after 45 seconds may be too late, but training feedback should still explain its value.
+- Judge whether the learner likely answered from listening by using prompt visibility, listen count, and whether the answer fits the spoken prompt naturally.
+- For thinking_structure, Chinese or native-language structure is acceptable.
+- For final_practice, expect a complete English answer.
 
 Return this JSON shape:
 {
@@ -88,6 +134,36 @@ Return this JSON shape:
   "readiness": "not_ready" | "almost_ready" | "ready",
   "mainIssue": "one short sentence",
   "feedbackSummary": "2-4 short actionable sentences",
+  "displayTranscript": "best-effort transcript for UI display",
+  "displayTranscriptSegments": [
+    {
+      "startSec": 0,
+      "endSec": 4.2,
+      "text": "segment text",
+      "afterCutoff": false
+    }
+  ],
+  "timeAnalysis": {
+    "durationSec": ${input.durationSec ?? 0},
+    "cutoffSec": 45,
+    "category": "too_short | good | slightly_long | overtime",
+    "beforeCutoffSummary": "what was communicated before 45s",
+    "afterCutoffSummary": "what was added after 45s, if any",
+    "pacingAdvice": "specific pacing advice"
+  },
+  "questionComprehensionAnalysis": {
+    "promptTextVisibleOnSubmit": ${promptUsage?.textVisibleOnSubmit ?? false},
+    "promptTextWasEverShown": ${promptUsage?.textWasEverShown ?? false},
+    "promptListenCount": ${promptUsage?.listenCount ?? 0},
+    "likelyAnsweredFromListening": true,
+    "evidence": "brief evidence"
+  },
+  "crossQuestionConsistency": {
+    "includedQuestionIds": [],
+    "contradictions": [],
+    "consistencySummary": "only analyze if context was provided",
+    "suggestedFix": "how to make the interview set more coherent"
+  },
   "suggestedNextAction": {
     "questionId": "${input.question.id}",
     "stage": "one of thinking_structure, english_units, full_english_answer, vocabulary_upgrade, final_practice",
@@ -109,6 +185,73 @@ export const TRAINING_EVALUATION_RESPONSE_SCHEMA = {
     },
     mainIssue: { type: 'STRING' },
     feedbackSummary: { type: 'STRING' },
+    displayTranscript: { type: 'STRING' },
+    displayTranscriptSegments: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          startSec: { type: 'NUMBER' },
+          endSec: { type: 'NUMBER' },
+          text: { type: 'STRING' },
+          afterCutoff: { type: 'BOOLEAN' }
+        },
+        required: ['startSec', 'endSec', 'text', 'afterCutoff']
+      }
+    },
+    timeAnalysis: {
+      type: 'OBJECT',
+      properties: {
+        durationSec: { type: 'NUMBER' },
+        cutoffSec: { type: 'NUMBER' },
+        category: {
+          type: 'STRING',
+          enum: ['too_short', 'good', 'slightly_long', 'overtime']
+        },
+        beforeCutoffSummary: { type: 'STRING' },
+        afterCutoffSummary: { type: 'STRING' },
+        pacingAdvice: { type: 'STRING' }
+      },
+      required: [
+        'durationSec',
+        'cutoffSec',
+        'category',
+        'beforeCutoffSummary',
+        'pacingAdvice'
+      ]
+    },
+    questionComprehensionAnalysis: {
+      type: 'OBJECT',
+      properties: {
+        promptTextVisibleOnSubmit: { type: 'BOOLEAN' },
+        promptTextWasEverShown: { type: 'BOOLEAN' },
+        promptListenCount: { type: 'NUMBER' },
+        likelyAnsweredFromListening: { type: 'BOOLEAN' },
+        evidence: { type: 'STRING' }
+      },
+      required: [
+        'promptTextVisibleOnSubmit',
+        'promptTextWasEverShown',
+        'promptListenCount',
+        'likelyAnsweredFromListening',
+        'evidence'
+      ]
+    },
+    crossQuestionConsistency: {
+      type: 'OBJECT',
+      properties: {
+        includedQuestionIds: { type: 'ARRAY', items: { type: 'STRING' } },
+        contradictions: { type: 'ARRAY', items: { type: 'STRING' } },
+        consistencySummary: { type: 'STRING' },
+        suggestedFix: { type: 'STRING' }
+      },
+      required: [
+        'includedQuestionIds',
+        'contradictions',
+        'consistencySummary',
+        'suggestedFix'
+      ]
+    },
     suggestedNextAction: {
       type: 'OBJECT',
       properties: {

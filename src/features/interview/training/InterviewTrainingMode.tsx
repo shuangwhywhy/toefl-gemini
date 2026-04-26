@@ -16,16 +16,17 @@ import { LegacyMockInterview } from '../LegacyMockInterview';
 import type {
   InterviewTrainingSession,
   InterviewTrainingStage,
+  QuestionPromptUsage,
   StageEvaluation,
   TrainingAttempt,
   TrainingRecommendation
 } from '../types';
 import { useRequestScope } from '../../../services/requestScope';
-import { useGeminiTranscription } from '../../../hooks/useGeminiTranscription';
 import {
   createNewTrainingSession,
   loadOrCreateTrainingSession
 } from '../../../services/interviewTrainingSessionFactory';
+import { fetchNeuralTTS } from '../../../services/llm/helpers';
 import {
   cleanupOldAudioBlobs,
   completeAttemptEvaluation,
@@ -49,10 +50,12 @@ import {
   getAttemptsForActiveStage,
   getLatestEvaluationForActiveStage
 } from './interviewTrainingSelectors';
+import { buildCrossQuestionTextContext } from './interviewTrainingContext';
 import {
   initialInterviewTrainingState,
   interviewTrainingReducer
 } from './interviewTrainingReducer';
+import { createTimingWindow, isTimedInterviewStage } from './useTimedAnswer';
 
 const INTERVIEWER_VOICE = 'Puck';
 
@@ -87,6 +90,9 @@ const createAttempt = (input: {
   inputType: 'audio' | 'text';
   transcript?: string;
   durationSec?: number;
+  promptUsage?: QuestionPromptUsage;
+  timingWindow?: TrainingAttempt['timingWindow'];
+  answerLanguage?: TrainingAttempt['answerLanguage'];
 }): TrainingAttempt => {
   const now = new Date().toISOString();
   return {
@@ -97,6 +103,9 @@ const createAttempt = (input: {
     inputType: input.inputType,
     transcript: input.transcript,
     durationSec: input.durationSec,
+    promptUsage: input.promptUsage,
+    timingWindow: input.timingWindow,
+    answerLanguage: input.answerLanguage,
     status: input.inputType === 'text' ? 'evaluating' : 'recorded',
     createdAt: now,
     updatedAt: now
@@ -121,6 +130,36 @@ const createEvaluation = (input: {
   details: input.result.details
 });
 
+const createPromptUsageSnapshot = (
+  question: InterviewTrainingSession['questions'][number]
+): QuestionPromptUsage => ({
+  textVisibleOnSubmit: question.promptUsage.textVisible,
+  textWasEverShown: question.promptUsage.textWasEverShown,
+  listenCount: question.promptUsage.listenCount,
+  playbackStartedCount: question.promptUsage.playbackStartedCount,
+  playbackCompletedCount: question.promptUsage.playbackCompletedCount
+});
+
+const inferAnswerLanguage = (
+  stage: InterviewTrainingStage,
+  inputType: 'audio' | 'text'
+): TrainingAttempt['answerLanguage'] => {
+  if (inputType === 'text') {
+    return 'unknown';
+  }
+  if (stage === 'thinking_structure') {
+    return 'mixed';
+  }
+  if (
+    stage === 'english_units' ||
+    stage === 'full_english_answer' ||
+    stage === 'final_practice'
+  ) {
+    return 'en';
+  }
+  return 'unknown';
+};
+
 export function InterviewTrainingMode({ onBack }: { onBack: () => void }) {
   const [state, dispatch] = useReducer(
     interviewTrainingReducer,
@@ -133,11 +172,6 @@ export function InterviewTrainingMode({ onBack }: { onBack: () => void }) {
     isSessionCurrent,
     invalidateSession
   } = useRequestScope('interview-training');
-  const {
-    transcribeAudio,
-    isTranscribing,
-    error: transcriptionError
-  } = useGeminiTranscription({ scopeId });
 
   const hydrateSession = useCallback(
     async (
@@ -222,6 +256,101 @@ export function InterviewTrainingMode({ onBack }: { onBack: () => void }) {
   const persistSessionUpdate = async (session: InterviewTrainingSession) => {
     dispatch({ type: 'SESSION_UPDATED', session });
     await saveInterviewTrainingSession(session);
+  };
+
+  const updateQuestionPromptUsage = (
+    questionId: string,
+    update: Partial<InterviewTrainingSession['questions'][number]['promptUsage']>
+  ) => {
+    if (!state.session) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const nextSession = replaceQuestion(
+      {
+        ...state.session,
+        updatedAt: now
+      },
+      questionId,
+      (question) => ({
+        ...question,
+        promptUsage: {
+          ...question.promptUsage,
+          ...update
+        },
+        updatedAt: now
+      })
+    );
+    void persistSessionUpdate(nextSession);
+  };
+
+  const updateQuestionPromptAudio = async (
+    questionId: string,
+    update: Partial<NonNullable<InterviewTrainingSession['questions'][number]['promptAudio']>>
+  ) => {
+    if (!state.session) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const nextSession = replaceQuestion(
+      {
+        ...state.session,
+        updatedAt: now
+      },
+      questionId,
+      (question) => ({
+        ...question,
+        promptAudio: {
+          voice: question.promptAudio?.voice ?? INTERVIEWER_VOICE,
+          ...question.promptAudio,
+          ...update
+        },
+        updatedAt: now
+      })
+    );
+    await persistSessionUpdate(nextSession);
+  };
+
+  const ensureQuestionPromptAudio = async (questionId: string) => {
+    const question = state.session?.questions.find((entry) => entry.id === questionId);
+    if (!state.session || !question) {
+      return null;
+    }
+
+    if (question.promptAudio?.audioUrl) {
+      return question.promptAudio.audioUrl;
+    }
+
+    await updateQuestionPromptAudio(questionId, { status: 'loading' });
+    try {
+      const audioUrl = await fetchNeuralTTS(
+        question.promptAudio?.voice ?? INTERVIEWER_VOICE,
+        question.question,
+        null,
+        {
+          scopeId,
+          supersedeKey: `interview-training:prompt-tts:${questionId}`,
+          origin: 'ui',
+          sceneKey: 'interview-training:prompt-tts'
+        }
+      );
+
+      if (audioUrl) {
+        await updateQuestionPromptAudio(questionId, {
+          audioUrl,
+          status: 'ready'
+        });
+        return audioUrl;
+      }
+
+      await updateQuestionPromptAudio(questionId, { status: 'failed' });
+      return null;
+    } catch (error) {
+      await updateQuestionPromptAudio(questionId, { status: 'failed' });
+      throw error;
+    }
   };
 
   const selectQuestion = async (questionId: string) => {
@@ -309,13 +438,18 @@ export function InterviewTrainingMode({ onBack }: { onBack: () => void }) {
     }
 
     const stage = state.session.activeStage;
+    const promptUsage = createPromptUsageSnapshot(activeQuestion);
+    const timingWindow = createTimingWindow(stage, input.durationSec);
     const attempt = createAttempt({
       sessionId: state.session.id,
       questionId: activeQuestion.id,
       stage,
       inputType: input.inputType,
       transcript: input.transcript,
-      durationSec: input.durationSec
+      durationSec: input.durationSec,
+      promptUsage,
+      timingWindow,
+      answerLanguage: inferAnswerLanguage(stage, input.inputType)
     });
     const now = new Date().toISOString();
     const stageState = activeQuestion.stages[stage];
@@ -346,54 +480,44 @@ export function InterviewTrainingMode({ onBack }: { onBack: () => void }) {
     );
 
     dispatch({ type: 'SUBMITTING_SET', isSubmitting: true });
-    dispatch({ type: 'ATTEMPT_ADDED', attempt, session: nextSession });
+    let persistedAttempt = attempt;
 
     try {
       await saveInterviewTrainingSession(nextSession);
-      await saveTrainingAttempt(attempt, input.audioBlob);
+      persistedAttempt = await saveTrainingAttempt(attempt, input.audioBlob);
+      dispatch({ type: 'ATTEMPT_ADDED', attempt: persistedAttempt, session: nextSession });
 
-      let attemptForEvaluation = attempt;
-      let transcriptForEvaluation = input.transcript ?? '';
-
-      if (input.audioBlob) {
-        const transcribed = await transcribeAudio({
-          audioBlob: input.audioBlob,
-          prompt:
-            'Transcribe this TOEFL interview practice answer into plain text. Preserve the learner language as spoken.',
-          supersedeKey: [
-            'interview-training',
-            state.session.id,
-            activeQuestion.id,
-            stage,
-            attempt.id,
-            'transcription'
-          ].join(':')
-        });
-        transcriptForEvaluation = transcribed || '(No response)';
-        attemptForEvaluation = {
-          ...attempt,
-          transcript: transcriptForEvaluation,
-          status: 'transcribed',
-          updatedAt: new Date().toISOString()
-        };
-        await saveTrainingAttempt(attemptForEvaluation);
-        dispatch({ type: 'ATTEMPT_UPDATED', attempt: attemptForEvaluation });
-      }
-
+      let attemptForEvaluation = persistedAttempt;
       attemptForEvaluation = {
         ...attemptForEvaluation,
         status: 'evaluating',
         updatedAt: new Date().toISOString()
       };
-      await saveTrainingAttempt(attemptForEvaluation);
+      attemptForEvaluation = await saveTrainingAttempt(attemptForEvaluation);
       dispatch({ type: 'ATTEMPT_UPDATED', attempt: attemptForEvaluation });
+
+      const questionForEvaluation =
+        nextSession.questions.find((question) => question.id === activeQuestion.id) ??
+        activeQuestion;
+      const crossQuestionTextContext = buildCrossQuestionTextContext({
+        session: nextSession,
+        currentQuestionId: activeQuestion.id,
+        currentStage: stage,
+        attempts: [attemptForEvaluation, ...state.attempts],
+        evaluations: state.evaluations
+      });
 
       const result = await evaluateInterviewTrainingStage({
         session: nextSession,
-        question: activeQuestion,
+        question: questionForEvaluation,
         stage,
-        transcript: transcriptForEvaluation,
+        inputType: input.inputType,
+        transcript: input.transcript,
+        audioBlob: input.audioBlob,
         durationSec: input.durationSec,
+        promptUsage,
+        timingWindow: isTimedInterviewStage(stage) ? timingWindow : undefined,
+        crossQuestionTextContext,
         attemptId: attemptForEvaluation.id,
         scopeId
       });
@@ -424,7 +548,7 @@ export function InterviewTrainingMode({ onBack }: { onBack: () => void }) {
       });
     } catch (error) {
       const failedAttempt: TrainingAttempt = {
-        ...attempt,
+        ...persistedAttempt,
         status: 'failed',
         updatedAt: new Date().toISOString()
       };
@@ -603,12 +727,6 @@ export function InterviewTrainingMode({ onBack }: { onBack: () => void }) {
             {state.error}
           </div>
         )}
-        {transcriptionError && (
-          <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
-            {transcriptionError}
-          </div>
-        )}
-
         <QuestionSwitcher
           session={state.session}
           onSelect={(questionId) => void selectQuestion(questionId)}
@@ -620,6 +738,8 @@ export function InterviewTrainingMode({ onBack }: { onBack: () => void }) {
               topic={state.session.topic}
               question={activeQuestion}
               stage={state.session.activeStage}
+              onPromptUsageChange={updateQuestionPromptUsage}
+              onEnsurePromptAudio={ensureQuestionPromptAudio}
             />
             <StageSwitcher
               activeStage={state.session.activeStage}
@@ -629,7 +749,6 @@ export function InterviewTrainingMode({ onBack }: { onBack: () => void }) {
             <StageAttemptPanel
               stage={state.session.activeStage}
               isSubmitting={state.isSubmitting}
-              isTranscribing={isTranscribing}
               onSubmit={submitTextAttempt}
               onSubmitAudio={submitAudioAttempt}
             />

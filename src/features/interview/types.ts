@@ -27,6 +27,36 @@ export type TrainingRecommendation = {
   createdAt: string;
 };
 
+export type QuestionPromptUsage = {
+  textVisibleOnSubmit: boolean;
+  textWasEverShown: boolean;
+  listenCount: number;
+  playbackStartedCount?: number;
+  playbackCompletedCount?: number;
+};
+
+export type QuestionPromptUsageState = {
+  textVisible: boolean;
+  textWasEverShown: boolean;
+  listenCount: number;
+  playbackStartedCount: number;
+  playbackCompletedCount: number;
+};
+
+export type QuestionPromptAudio = {
+  voice: string;
+  audioUrl?: string;
+  status?: 'idle' | 'loading' | 'ready' | 'failed';
+};
+
+export type TimingWindow = {
+  enabled: boolean;
+  idealStartSec: number;
+  idealEndSec: number;
+  softMaxSec: number;
+  category?: 'too_short' | 'good' | 'slightly_long' | 'overtime';
+};
+
 export type StageState = {
   status: StageStatus;
   attemptIds: string[];
@@ -41,6 +71,8 @@ export type InterviewTrainingQuestion = {
   index: number;
   role: InterviewQuestionRole;
   question: string;
+  promptAudio?: QuestionPromptAudio;
+  promptUsage: QuestionPromptUsageState;
   stages: Record<InterviewTrainingStage, StageState>;
   currentStage: InterviewTrainingStage;
   completedStages: InterviewTrainingStage[];
@@ -82,9 +114,49 @@ export type TrainingAttempt = {
   transcript?: string;
   audioBlobId?: string;
   durationSec?: number;
+  answerLanguage?: 'zh' | 'en' | 'mixed' | 'unknown';
+  promptUsage?: QuestionPromptUsage;
+  timingWindow?: TimingWindow;
   selectedUnitIds?: string[];
   evaluationId?: string;
-  status: 'recorded' | 'transcribed' | 'evaluating' | 'evaluated' | 'failed';
+  status:
+    | 'recording'
+    | 'recorded'
+    | 'transcribed'
+    | 'evaluating'
+    | 'evaluated'
+    | 'failed';
+};
+
+export type TimeAnalysis = {
+  durationSec: number;
+  cutoffSec: number;
+  category: 'too_short' | 'good' | 'slightly_long' | 'overtime';
+  beforeCutoffSummary: string;
+  afterCutoffSummary?: string;
+  pacingAdvice: string;
+};
+
+export type QuestionComprehensionAnalysis = {
+  promptTextVisibleOnSubmit: boolean;
+  promptTextWasEverShown: boolean;
+  promptListenCount: number;
+  likelyAnsweredFromListening: boolean;
+  evidence: string;
+};
+
+export type CrossQuestionConsistency = {
+  includedQuestionIds: string[];
+  contradictions: string[];
+  consistencySummary: string;
+  suggestedFix: string;
+};
+
+export type TranscriptSegment = {
+  startSec: number;
+  endSec: number;
+  text: string;
+  afterCutoff: boolean;
 };
 
 export type StageEvaluation = {
@@ -106,7 +178,13 @@ export type StageEvaluation = {
 export type StageEvaluationResult = Omit<
   StageEvaluation,
   'id' | 'sessionId' | 'questionId' | 'stage' | 'attemptId' | 'createdAt'
->;
+> & {
+  displayTranscript?: string;
+  displayTranscriptSegments?: TranscriptSegment[];
+  timeAnalysis?: TimeAnalysis;
+  questionComprehensionAnalysis?: QuestionComprehensionAnalysis;
+  crossQuestionConsistency?: CrossQuestionConsistency;
+};
 
 export type TrainingAudioBlob = {
   id: string;

@@ -7,10 +7,14 @@ import {
   type InterviewTrainingQuestion,
   type InterviewTrainingSession,
   type InterviewTrainingStage,
+  type QuestionPromptUsage,
   type StageEvaluationResult,
+  type TimingWindow,
   type TrainingRecommendation
 } from '../features/interview/types';
+import type { CrossQuestionTextContext } from '../features/interview/training/interviewTrainingContext';
 import { StageEvaluationResultSchema } from '../features/interview/training/schema';
+import { buildInlineAudioPartFromBlob } from './audio/multimodal';
 import { callStructuredGemini } from './callStructuredGemini';
 
 const clampScore = (score: number) =>
@@ -41,24 +45,75 @@ const normalizeRecommendation = (
   };
 };
 
+const asDetailsRecord = (details: unknown): Record<string, unknown> =>
+  details && typeof details === 'object' && !Array.isArray(details)
+    ? (details as Record<string, unknown>)
+    : {};
+
+const mergeStructuredDetails = (
+  result: Pick<
+    StageEvaluationResult,
+    | 'details'
+    | 'displayTranscript'
+    | 'displayTranscriptSegments'
+    | 'timeAnalysis'
+    | 'questionComprehensionAnalysis'
+    | 'crossQuestionConsistency'
+  >
+): Record<string, unknown> => ({
+  ...asDetailsRecord(result.details),
+  ...(result.displayTranscript
+    ? { displayTranscript: result.displayTranscript }
+    : {}),
+  ...(result.displayTranscriptSegments
+    ? { displayTranscriptSegments: result.displayTranscriptSegments }
+    : {}),
+  ...(result.timeAnalysis ? { timeAnalysis: result.timeAnalysis } : {}),
+  ...(result.questionComprehensionAnalysis
+    ? { questionComprehensionAnalysis: result.questionComprehensionAnalysis }
+    : {}),
+  ...(result.crossQuestionConsistency
+    ? { crossQuestionConsistency: result.crossQuestionConsistency }
+    : {})
+});
+
 export async function evaluateInterviewTrainingStage(input: {
   session: InterviewTrainingSession;
   question: InterviewTrainingQuestion;
   stage: InterviewTrainingStage;
-  transcript: string;
+  inputType: 'audio' | 'text';
+  transcript?: string;
+  audioBlob?: Blob;
   durationSec?: number;
+  promptUsage?: QuestionPromptUsage;
+  timingWindow?: TimingWindow;
+  crossQuestionTextContext?: CrossQuestionTextContext | null;
   attemptId: string;
   scopeId: string;
   signal?: AbortSignal | null;
 }): Promise<StageEvaluationResult> {
+  const promptText = buildTrainingEvaluationPrompt({
+    topic: input.session.topic,
+    question: input.question,
+    stage: input.stage,
+    inputType: input.inputType,
+    transcript: input.transcript,
+    durationSec: input.durationSec,
+    promptUsage: input.promptUsage,
+    timingWindow: input.timingWindow,
+    hasRawAudio: Boolean(input.audioBlob),
+    crossQuestionTextContext: input.crossQuestionTextContext
+  });
+  const parts: Array<Record<string, unknown>> = [{ text: promptText }];
+  if (input.audioBlob) {
+    parts.push(await buildInlineAudioPartFromBlob(input.audioBlob));
+  }
+  if (input.crossQuestionTextContext?.promptText) {
+    parts.push({ text: input.crossQuestionTextContext.promptText });
+  }
+
   const result = await callStructuredGemini({
-    promptOrParts: buildTrainingEvaluationPrompt({
-      topic: input.session.topic,
-      question: input.question,
-      stage: input.stage,
-      transcript: input.transcript,
-      durationSec: input.durationSec
-    }),
+    promptOrParts: parts,
     responseSchema: TRAINING_EVALUATION_RESPONSE_SCHEMA,
     zodSchema: StageEvaluationResultSchema,
     scopeId: input.scopeId,
@@ -91,6 +146,6 @@ export async function evaluateInterviewTrainingStage(input: {
       input.question,
       input.stage
     ),
-    details: result.details ?? {}
+    details: mergeStructuredDetails(result)
   };
 }

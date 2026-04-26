@@ -5,15 +5,18 @@ import {
 } from '../features/interview/interviewGeneration';
 import {
   INTERVIEW_TRAINING_STAGES,
+  type InterviewTrainingQuestion,
   type InterviewTrainingSession,
   type InterviewTrainingStage,
+  type QuestionPromptUsageState,
   type StageState
 } from '../features/interview/types';
 import { InterviewTrainingSessionSchema } from '../features/interview/training/schema';
 import { PreloadPipeline } from './preload/orchestrator';
 import {
   createInterviewTrainingSession,
-  loadActiveInterviewTrainingSession
+  loadActiveInterviewTrainingSession,
+  saveInterviewTrainingSession
 } from './interviewTrainingPersistence';
 
 type SessionSource = 'preload_cache' | 'fresh_generation';
@@ -43,6 +46,14 @@ export const createEmptyStage = (now: string): StageState => ({
   updatedAt: now
 });
 
+export const createDefaultPromptUsageState = (): QuestionPromptUsageState => ({
+  textVisible: false,
+  textWasEverShown: false,
+  listenCount: 0,
+  playbackStartedCount: 0,
+  playbackCompletedCount: 0
+});
+
 export function createEmptyStageMap(
   now: string
 ): Record<InterviewTrainingStage, StageState> {
@@ -59,6 +70,7 @@ export function createSessionFromGeneratedInterview(
   generated: InterviewSessionData,
   options: {
     source: SessionSource;
+    voice: string;
   }
 ): InterviewTrainingSession {
   if (!generated?.topic || !Array.isArray(generated.questions)) {
@@ -71,6 +83,12 @@ export function createSessionFromGeneratedInterview(
     index,
     role: question.role,
     question: question.text,
+    promptAudio: {
+      voice: options.voice,
+      audioUrl: question.audioUrl ?? undefined,
+      status: question.audioUrl ? 'ready' as const : 'idle' as const
+    },
+    promptUsage: createDefaultPromptUsageState(),
     stages: createEmptyStageMap(now),
     currentStage: 'thinking_structure' as const,
     completedStages: [],
@@ -99,6 +117,41 @@ export function createSessionFromGeneratedInterview(
   };
 }
 
+const normalizeQuestionPromptUsage = (
+  promptUsage: Partial<QuestionPromptUsageState> | undefined
+): QuestionPromptUsageState => ({
+  ...createDefaultPromptUsageState(),
+  ...(promptUsage ?? {})
+});
+
+const normalizeTrainingQuestion = (
+  question: InterviewTrainingQuestion,
+  voice: string
+): InterviewTrainingQuestion => {
+  const audioUrl = question.promptAudio?.audioUrl;
+  return {
+    ...question,
+    promptAudio: {
+      voice: question.promptAudio?.voice ?? voice,
+      audioUrl,
+      status: question.promptAudio?.status ?? (audioUrl ? 'ready' : 'idle')
+    },
+    promptUsage: normalizeQuestionPromptUsage(question.promptUsage),
+    stages: question.stages,
+    completedStages: question.completedStages ?? []
+  };
+};
+
+export const normalizeInterviewTrainingSession = (
+  session: InterviewTrainingSession,
+  voice: string
+): InterviewTrainingSession => ({
+  ...session,
+  questions: session.questions.map((question) =>
+    normalizeTrainingQuestion(question, voice)
+  )
+});
+
 export function consumeInterviewPreloadCacheIfAvailable(): InterviewSessionData | null {
   const cached = PreloadPipeline.cache.interview as InterviewSessionData | null;
   if (!cached) {
@@ -126,8 +179,10 @@ export async function loadOrCreateTrainingSession(options: {
   const activeSession = await loadActiveInterviewTrainingSession();
 
   if (activeSession) {
-    const parsed = InterviewTrainingSessionSchema.safeParse(activeSession);
+    const normalized = normalizeInterviewTrainingSession(activeSession, options.voice);
+    const parsed = InterviewTrainingSessionSchema.safeParse(normalized);
     if (parsed.success && hasValidActivePosition(parsed.data)) {
+      await saveInterviewTrainingSession(parsed.data as InterviewTrainingSession);
       return {
         kind: 'restored',
         session: parsed.data as InterviewTrainingSession
@@ -147,7 +202,8 @@ export async function loadOrCreateTrainingSession(options: {
   if (cachedInterview) {
     try {
       const session = createSessionFromGeneratedInterview(cachedInterview, {
-        source: 'preload_cache'
+        source: 'preload_cache',
+        voice: options.voice
       });
       await createInterviewTrainingSession(session);
       return {
@@ -169,7 +225,8 @@ export async function loadOrCreateTrainingSession(options: {
     mode: 'manual'
   });
   const session = createSessionFromGeneratedInterview(generated, {
-    source: 'fresh_generation'
+    source: 'fresh_generation',
+    voice: options.voice
   });
   await createInterviewTrainingSession(session);
 
@@ -190,7 +247,8 @@ export async function createNewTrainingSession(options: {
   if (cachedInterview) {
     try {
       const session = createSessionFromGeneratedInterview(cachedInterview, {
-        source: 'preload_cache'
+        source: 'preload_cache',
+        voice: options.voice
       });
       await createInterviewTrainingSession(session);
       return {
@@ -212,7 +270,8 @@ export async function createNewTrainingSession(options: {
     mode: 'manual'
   });
   const session = createSessionFromGeneratedInterview(generated, {
-    source: 'fresh_generation'
+    source: 'fresh_generation',
+    voice: options.voice
   });
   await createInterviewTrainingSession(session);
 

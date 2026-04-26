@@ -28,6 +28,24 @@ export const interviewTrainingDB = new InterviewTrainingDB();
 
 const nowIso = () => new Date().toISOString();
 
+const normalizeTrainingAttempt = (attempt: TrainingAttempt): TrainingAttempt => ({
+  ...attempt,
+  answerLanguage: attempt.answerLanguage ?? 'unknown',
+  promptUsage: attempt.promptUsage ?? {
+    textVisibleOnSubmit: false,
+    textWasEverShown: false,
+    listenCount: 0,
+    playbackStartedCount: 0,
+    playbackCompletedCount: 0
+  },
+  timingWindow: attempt.timingWindow ?? {
+    enabled: false,
+    idealStartSec: 35,
+    idealEndSec: 40,
+    softMaxSec: 45
+  }
+});
+
 export async function loadActiveInterviewTrainingSession(): Promise<InterviewTrainingSession | null> {
   return interviewTrainingDB.transaction(
     'rw',
@@ -103,8 +121,8 @@ export async function archiveCurrentSession(): Promise<void> {
 export async function saveTrainingAttempt(
   attempt: TrainingAttempt,
   audioBlob?: Blob
-): Promise<void> {
-  await interviewTrainingDB.transaction(
+): Promise<TrainingAttempt> {
+  return await interviewTrainingDB.transaction(
     'rw',
     interviewTrainingDB.attempts,
     interviewTrainingDB.audioBlobs,
@@ -128,6 +146,7 @@ export async function saveTrainingAttempt(
       }
 
       await interviewTrainingDB.attempts.put(attemptToSave);
+      return attemptToSave;
     }
   );
 }
@@ -205,6 +224,7 @@ export async function getAttemptsForStage(
 
   return attempts
     .filter((attempt) => attempt.questionId === questionId && attempt.stage === stage)
+    .map(normalizeTrainingAttempt)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
@@ -216,7 +236,9 @@ export async function getAttemptsForSession(
     .equals(sessionId)
     .toArray();
 
-  return attempts.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  return attempts
+    .map(normalizeTrainingAttempt)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
 export async function getLatestEvaluation(

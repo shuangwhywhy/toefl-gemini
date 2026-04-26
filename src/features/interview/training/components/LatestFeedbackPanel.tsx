@@ -2,6 +2,135 @@ import { Award, ClipboardList } from 'lucide-react';
 import type { StageEvaluation, TrainingRecommendation } from '../../types';
 import { AIRecommendationCard } from './AIRecommendationCard';
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
+
+const readDetails = (evaluation: StageEvaluation) =>
+  isRecord(evaluation.details) ? evaluation.details : {};
+
+const renderTranscript = (details: Record<string, unknown>) => {
+  const segments = details.displayTranscriptSegments;
+  if (Array.isArray(segments) && segments.length > 0) {
+    return (
+      <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+          Display Transcript
+        </div>
+        <div className="space-y-2 text-sm leading-relaxed">
+          {segments.map((segment, index) => {
+            if (!isRecord(segment)) {
+              return null;
+            }
+            const text = typeof segment.text === 'string' ? segment.text : '';
+            const afterCutoff = Boolean(segment.afterCutoff);
+            const startSec =
+              typeof segment.startSec === 'number' ? segment.startSec : 0;
+            return (
+              <div key={`${index}-${startSec}`}>
+                {index > 0 && startSec >= 45 && (
+                  <div className="my-2 border-t border-dashed border-rose-300 pt-2 text-[11px] font-bold uppercase tracking-wide text-rose-500">
+                    45s cutoff
+                  </div>
+                )}
+                <p
+                  className={
+                    afterCutoff
+                      ? 'text-slate-400 line-through decoration-rose-300'
+                      : 'text-slate-700'
+                  }
+                >
+                  {text}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  if (typeof details.displayTranscript === 'string' && details.displayTranscript) {
+    return (
+      <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+          Display Transcript
+        </div>
+        <p className="text-sm leading-relaxed text-slate-700">
+          {details.displayTranscript}
+        </p>
+      </div>
+    );
+  }
+
+  return null;
+};
+
+const renderStructuredCards = (details: Record<string, unknown>) => {
+  const timeAnalysis = isRecord(details.timeAnalysis) ? details.timeAnalysis : null;
+  const comprehension = isRecord(details.questionComprehensionAnalysis)
+    ? details.questionComprehensionAnalysis
+    : null;
+  const consistency = isRecord(details.crossQuestionConsistency)
+    ? details.crossQuestionConsistency
+    : null;
+
+  if (!timeAnalysis && !comprehension && !consistency) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 grid gap-3">
+      {timeAnalysis && (
+        <div className="rounded-lg border border-slate-200 bg-white p-3">
+          <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            Timing
+          </div>
+          <p className="mt-1 text-sm font-semibold text-slate-800">
+            {String(timeAnalysis.category ?? 'unknown')} ·{' '}
+            {String(timeAnalysis.durationSec ?? '?')}s
+          </p>
+          <p className="mt-1 text-sm leading-relaxed text-slate-600">
+            {String(timeAnalysis.pacingAdvice ?? '')}
+          </p>
+        </div>
+      )}
+
+      {comprehension && (
+        <div className="rounded-lg border border-slate-200 bg-white p-3">
+          <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            Listening Check
+          </div>
+          <p className="mt-1 text-sm font-semibold text-slate-800">
+            {comprehension.likelyAnsweredFromListening
+              ? 'Likely answered from listening'
+              : 'May have relied on visible text'}
+          </p>
+          <p className="mt-1 text-sm leading-relaxed text-slate-600">
+            {String(comprehension.evidence ?? '')}
+          </p>
+        </div>
+      )}
+
+      {consistency && (
+        <div className="rounded-lg border border-slate-200 bg-white p-3">
+          <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            Cross-question Consistency
+          </div>
+          <p className="mt-1 text-sm leading-relaxed text-slate-600">
+            {String(consistency.consistencySummary ?? '')}
+          </p>
+          {Array.isArray(consistency.contradictions) &&
+            consistency.contradictions.length > 0 && (
+              <p className="mt-1 text-sm font-semibold text-rose-700">
+                {consistency.contradictions.length} contradiction(s) found.
+              </p>
+            )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export function LatestFeedbackPanel({
   evaluation,
   onGoToRecommendation
@@ -16,6 +145,7 @@ export function LatestFeedbackPanel({
       </section>
     );
   }
+  const details = readDetails(evaluation);
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4">
@@ -47,6 +177,9 @@ export function LatestFeedbackPanel({
           />
         </div>
       )}
+
+      {renderTranscript(details)}
+      {renderStructuredCards(details)}
 
       <details className="mt-4 rounded-lg bg-slate-50 p-3">
         <summary className="cursor-pointer text-xs font-bold uppercase tracking-wide text-slate-500">
