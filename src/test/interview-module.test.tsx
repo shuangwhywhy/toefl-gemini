@@ -57,7 +57,7 @@ vi.mock('../services/preload/orchestrator', () => ({
   }
 }));
 
-import { InterviewModule } from '../features/interview/InterviewModule';
+import { LegacyMockInterview } from '../features/interview/LegacyMockInterview';
 import { PreloadPipeline } from '../services/preload/orchestrator';
 
 class MockMediaRecorder {
@@ -77,7 +77,7 @@ class MockMediaRecorder {
   }
 }
 
-describe('InterviewModule audio warmup', () => {
+describe('LegacyMockInterview audio warmup', () => {
   beforeEach(() => {
     hoisted.sessionCounter = 0;
     hoisted.fetchNeuralTtsMock.mockReset();
@@ -132,7 +132,7 @@ describe('InterviewModule audio warmup', () => {
   });
 
   it('warms later question audio after Q1 starts and while the user is answering', async () => {
-    const { container } = render(<InterviewModule onBack={() => undefined} />);
+    const { container } = render(<LegacyMockInterview onBack={() => undefined} />);
 
     await screen.findByText('准备好接受面试了吗？');
 
