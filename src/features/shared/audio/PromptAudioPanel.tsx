@@ -139,9 +139,9 @@ export function PromptAudioPanel({
         </div>
       </div>
 
-      <div className="min-h-[60px] rounded-xl bg-slate-50/30 p-4 transition-colors group-hover/panel:bg-slate-50/50">
+      <div className="rounded-xl bg-slate-50/30 p-4 transition-colors group-hover/panel:bg-slate-50/50">
         {showText ? (
-          <div className="relative">
+          <div className="relative flex min-h-[56px] items-center">
             {highlightText ? (
               <HighlightedPromptText
                 text={text}
@@ -204,7 +204,7 @@ export function PromptAudioPanel({
               title="Stop"
               className="flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-200 hover:text-slate-700 disabled:opacity-20"
             >
-              <Square className="h-3.5 w-3.5 fill-current" />
+              <Square className="h-4 w-4 fill-current" />
             </button>
 
             <button

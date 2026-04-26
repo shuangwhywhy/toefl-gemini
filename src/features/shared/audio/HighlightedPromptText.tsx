@@ -9,7 +9,7 @@ export function HighlightedPromptText({
 }) {
   if (highlightLength <= 0) {
     return (
-      <p className="text-base font-semibold leading-relaxed text-slate-900 md:text-lg">
+      <p className="text-base font-normal leading-relaxed text-slate-900 md:text-lg">
         {text}
       </p>
     );
@@ -23,7 +23,7 @@ export function HighlightedPromptText({
   const after = text.substring(highlightStart + highlightLength);
 
   return (
-    <p className="text-base font-semibold leading-relaxed text-slate-500 md:text-lg">
+    <p className="text-base font-normal leading-relaxed text-slate-500 md:text-lg">
       <span>{before}</span>
       <span className="rounded bg-cyan-50 px-1 text-cyan-700 transition-colors">
         {highlighted}

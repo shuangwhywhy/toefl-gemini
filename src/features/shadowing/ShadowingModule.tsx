@@ -236,20 +236,33 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
 
     let isCancelled = false;
     const fetchCurrentTTS = async () => {
+      console.log('[Shadow] Effect checking TTS for:', text.substring(0, 20), 'Voice:', selectedVoice);
       if (!audioCacheRef.current[selectedVoice]) {
+        console.log('[Shadow] No cache for', selectedVoice, '- requesting TTS...');
         setIsTtsLoading(true);
-        const url = await fetchNeuralTTS(selectedVoice, text, null, {
-          scopeId: requestScope.scopeId,
-          supersedeKey: `shadow:tts:${selectedVoice}`,
-          origin: 'ui',
-          sceneKey: 'shadow:tts'
-        });
-        if (!isCancelled && typeof url === 'string') {
-          audioCacheRef.current[selectedVoice] = url;
-          setTtsAudioUrl(url);
+        try {
+          const url = await fetchNeuralTTS(selectedVoice, text, null, {
+            scopeId: requestScope.scopeId,
+            supersedeKey: `shadow:tts:${selectedVoice}`,
+            origin: 'ui',
+            sceneKey: 'shadow:tts'
+          });
+          if (!isCancelled && typeof url === 'string') {
+            console.log('[Shadow] TTS fetched successfully');
+            audioCacheRef.current[selectedVoice] = url;
+            setTtsAudioUrl(url);
+          } else {
+            console.warn('[Shadow] TTS result invalid or cancelled:', url);
+          }
+        } catch (err) {
+          console.error('[Shadow] Shadow TTS fetch failed:', err);
+        } finally {
+          if (!isCancelled) {
+            setIsTtsLoading(false);
+          }
         }
-        setIsTtsLoading(false);
       } else {
+        console.log('[Shadow] Using cached TTS for', selectedVoice);
         setTtsAudioUrl(audioCacheRef.current[selectedVoice]);
       }
     };
@@ -258,7 +271,7 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
     return () => {
       isCancelled = true;
     };
-  }, [text, selectedVoice]);
+  }, [text, selectedVoice, requestScope.scopeId]);
 
   const generateNewText = async (
     targetLengthLevel = lengthLevel,
@@ -327,6 +340,7 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
     const signal = manualGenControllerRef.current.signal;
 
     setIsGenerating(true);
+    setIsTtsLoading(true);
     audioCacheRef.current = {};
     setTtsAudioUrl('');
 
@@ -933,7 +947,7 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
                     <button
                       onClick={() => void toggleRecording()}
                       disabled={!text || text.includes('Click')}
-                      className={`w-10 h-10 flex items-center justify-center rounded-full transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                      className={`w-9 h-9 flex items-center justify-center rounded-full transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                         isRecording
                           ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-200 animate-pulse'
                           : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm hover:scale-105 active:scale-95'
@@ -950,10 +964,10 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
                       onClick={() =>
                         void generateNewText(lengthLevel, learningFocus, difficultyLevel)
                       }
-                      className="w-10 h-10 flex items-center justify-center bg-transparent hover:bg-slate-100 text-slate-600 hover:text-indigo-600 rounded-full transition-all disabled:opacity-50"
+                      className="w-9 h-9 flex items-center justify-center bg-transparent hover:bg-slate-100 text-slate-600 hover:text-indigo-600 rounded-full transition-all disabled:opacity-50"
                       title="随机生成下一句"
                     >
-                      <ArrowRight className="w-5 h-5" />
+                      <ArrowRight className="w-4 h-4" />
                     </button>
                   </>
                 }
