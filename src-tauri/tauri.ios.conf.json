@@ -3,8 +3,8 @@
   "bundle": {
     "iOS": {
       "minimumSystemVersion": "14.0",
-      "infoPlist": "src-tauri/Info.ios.plist",
-      "template": "src-tauri/ios-project.yml"
+      "infoPlist": "Info.ios.plist",
+      "template": "ios-project.yml"
     }
   }
 }
