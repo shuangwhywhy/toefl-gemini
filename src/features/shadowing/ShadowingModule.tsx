@@ -929,7 +929,7 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
                 }
                 extraBottomControls={
                   <>
-                    <div className="w-px h-6 bg-slate-200 mx-1"></div>
+
                     <button
                       onClick={() => void toggleRecording()}
                       disabled={!text || text.includes('Click')}

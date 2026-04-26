@@ -51,7 +51,7 @@ export function PromptAudioPanel({
   
   title = 'Audio prompt',
   hiddenTextLabel = 'Prompt text hidden',
-  playButtonLabel = 'Play prompt',
+  playButtonLabel = 'Play',
   resumeButtonLabel = 'Resume',
   replayButtonLabel = 'Replay',
   
@@ -86,7 +86,7 @@ export function PromptAudioPanel({
   }, [forceStop, stopPlayer]);
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4 rounded-2xl bg-white/80 p-5 shadow-sm backdrop-blur-xl transition-all hover:shadow-md group/panel">
       <audio
         ref={player.audioRef}
         onEnded={player.handleEnded}
@@ -94,148 +94,143 @@ export function PromptAudioPanel({
         className="hidden"
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="inline-flex items-center gap-3 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 shadow-sm">
-            <span className="inline-flex items-center gap-1.5" title={title}>
-              <Volume2 className="h-3.5 w-3.5 text-cyan-600" />
-              {title}
-            </span>
-            
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-50 text-cyan-600">
+            <Headphones className="h-4 w-4" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-800">{title}</h3>
             {showListenCount && (
-              <>
-                <span className="h-3.5 w-px bg-slate-200" />
-                <span className="inline-flex items-center gap-1.5" title="Completed listens">
-                  <Headphones className="h-3.5 w-3.5 text-slate-400" />
-                  <span className="font-bold text-slate-800">{listenCount}</span>
+              <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500">
+                <span className="uppercase tracking-wider">Listen count:</span>
+                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-700">
+                  {listenCount}
                 </span>
-              </>
-            )}
-            
-            {showSpeedControl && (
-              <>
-                <span className="h-3.5 w-px bg-slate-200" />
-                <label className="inline-flex items-center gap-1.5">
-                  <Settings className="h-3.5 w-3.5 text-slate-400" />
-                  <select
-                    value={player.rate}
-                    onChange={(event) => player.setRate(Number(event.target.value))}
-                    className="bg-transparent text-xs font-bold text-slate-700 outline-none"
-                    aria-label="Prompt audio speed"
-                  >
-                    <option value="0.8">0.8x</option>
-                    <option value="1">1.0x</option>
-                    <option value="1.2">1.2x</option>
-                  </select>
-                </label>
-              </>
+              </div>
             )}
           </div>
-          {extraTopControls}
         </div>
 
-        {showTextToggle && (
-          <button
-            type="button"
-            onClick={() => onShowTextChange(!showText)}
-            className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
-          >
-            {showText ? (
-              <EyeOff className="mr-2 h-4 w-4" />
-            ) : (
-              <Eye className="mr-2 h-4 w-4" />
-            )}
-            {showText ? 'Hide prompt text' : 'Show prompt text'}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {extraTopControls}
+          {showSpeedControl && (
+            <div className="flex items-center gap-1 rounded-full bg-slate-100/50 p-1">
+              <button
+                type="button"
+                onClick={() =>
+                  player.setRate(player.rate === 1 ? 0.8 : player.rate === 0.8 ? 1.2 : 1)
+                }
+                className="flex h-7 px-2 items-center gap-1.5 rounded-full text-[10px] font-bold text-slate-600 transition hover:bg-white hover:shadow-sm active:scale-95"
+              >
+                <span className="opacity-60">{player.rate}x</span>
+              </button>
+            </div>
+          )}
+          {showTextToggle && (
+            <button
+              type="button"
+              onClick={() => onShowTextChange(!showText)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-cyan-600 transition-colors"
+            >
+              {showText ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="min-h-[88px] rounded-lg bg-white border border-slate-200 p-4 shadow-sm">
+      <div className="min-h-[60px] rounded-xl bg-slate-50/30 p-4 transition-colors group-hover/panel:bg-slate-50/50">
         {showText ? (
-          highlightText ? (
-            <HighlightedPromptText
-              text={text}
-              highlightStart={player.highlightStart}
-              highlightLength={player.highlightLength}
-            />
-          ) : (
-            <p className="text-base leading-relaxed text-slate-800 whitespace-pre-wrap font-medium">
-              {text}
-            </p>
-          )
+          <div className="relative">
+            {highlightText ? (
+              <HighlightedPromptText
+                text={text}
+                highlightStart={player.highlightStart}
+                highlightLength={player.highlightLength}
+              />
+            ) : (
+              <p className="text-base leading-relaxed text-slate-800 whitespace-pre-wrap">
+                {text}
+              </p>
+            )}
+          </div>
         ) : (
           <button
             type="button"
             onClick={() => onShowTextChange(true)}
-            className="flex min-h-[56px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 text-slate-400 transition hover:border-cyan-300 hover:text-cyan-600"
+            className="flex min-h-[56px] w-full flex-row items-center justify-center gap-3 rounded-lg text-slate-400 transition hover:text-cyan-600 group"
             disabled={!showTextToggle}
           >
-            <Eye className="mb-1 h-6 w-6 opacity-60" />
-            <span className="text-xs font-bold uppercase tracking-wide">
+            <Eye className="h-5 w-5 opacity-40 group-hover:opacity-100 transition-opacity" />
+            <span className="text-sm font-bold uppercase tracking-widest">
               {hiddenTextLabel}
             </span>
           </button>
         )}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          {player.isPlaying ? (
+      <div className="flex items-center justify-center">
+        <div className="flex items-center rounded-full bg-slate-100/40 p-1.5 shadow-inner">
+          <div className="flex items-center gap-1 pr-3">
+            {player.isPlaying ? (
+              <button
+                type="button"
+                onClick={player.pause}
+                title="Pause"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-cyan-600 text-white shadow-md transition hover:bg-cyan-700 active:scale-95"
+              >
+                <Pause className="h-4 w-4 fill-current" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void player.play()}
+                disabled={isLoading || !text}
+                title={player.isPaused ? resumeButtonLabel : playButtonLabel}
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-cyan-600 text-white shadow-md transition hover:bg-cyan-700 active:scale-95 disabled:opacity-50"
+              >
+                {isLoading ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Play className="h-4 w-4 fill-current" />
+                )}
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={player.pause}
-              className="inline-flex items-center rounded-lg bg-cyan-100 px-4 py-2 text-sm font-bold text-cyan-800 hover:bg-cyan-200"
+              onClick={player.stop}
+              disabled={!player.isPlaying && !player.isPaused}
+              title="Stop"
+              className="flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-200 hover:text-slate-700 disabled:opacity-20"
             >
-              <Pause className="mr-2 h-4 w-4 fill-current" />
-              Pause
+              <Square className="h-3.5 w-3.5 fill-current" />
             </button>
-          ) : (
+
             <button
               type="button"
-              onClick={() => void player.play()}
+              onClick={() => void player.replay()}
               disabled={isLoading || !text}
-              className="inline-flex items-center rounded-lg bg-cyan-700 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-50"
+              title={replayButtonLabel}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-200 hover:text-slate-700 disabled:opacity-20"
             >
-              {isLoading ? (
-                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Play className="mr-2 h-4 w-4 fill-current" />
-              )}
-              {isLoading ? 'Loading audio...' : player.isPaused ? resumeButtonLabel : playButtonLabel}
+              <RotateCcw className="h-4 w-4" />
             </button>
-          )}
-
-          <button
-            type="button"
-            onClick={player.stop}
-            disabled={!player.isPlaying && !player.isPaused}
-            className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Square className="mr-2 h-4 w-4 fill-current" />
-            Stop
-          </button>
-
-          <button
-            type="button"
-            onClick={() => void player.replay()}
-            disabled={isLoading || !text}
-            className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <RotateCcw className="mr-2 h-4 w-4" />
-            {replayButtonLabel}
-          </button>
-        </div>
-        {extraBottomControls && (
-          <div className="flex items-center gap-2">
-            {extraBottomControls}
           </div>
-        )}
+
+          {extraBottomControls && (
+            <div className="flex items-center gap-2 border-l border-slate-200/80 pl-3">
+              {extraBottomControls}
+            </div>
+          )}
+        </div>
       </div>
 
       {(player.error || audioStatus === 'failed') && (
-        <p className="text-sm text-amber-700">
-          {player.error ?? 'Prompt audio could not be loaded. Try replaying.'}
-        </p>
+        <div className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
+          <RefreshCw className="h-3 w-3" />
+          {player.error ?? 'Prompt audio failed. Try replaying.'}
+        </div>
       )}
     </div>
   );
