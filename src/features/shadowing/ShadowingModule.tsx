@@ -27,6 +27,7 @@ import {
   DEFAULT_SHADOW_VOICE,
   queueShadowPreload
 } from '../shared/preloadTasks';
+import { PromptAudioPanel } from '../shared/audio/PromptAudioPanel';
 import { playBeep } from '../../services/audio/playback';
 import {
   fetchGeminiText,
@@ -52,15 +53,9 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
   );
 
   const [selectedVoice, setSelectedVoice] = useState(DEFAULT_SHADOW_VOICE);
-  const [rate, setRate] = useState(1);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
   const [isTtsLoading, setIsTtsLoading] = useState(false);
   const [ttsAudioUrl, setTtsAudioUrl] = useState('');
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const [highlightStart, setHighlightStart] = useState(0);
-  const [highlightLength, setHighlightLength] = useState(0);
   const [showText, setShowText] = useState(false);
 
   const [isRecording, setIsRecording] = useState(false);
@@ -241,7 +236,6 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
 
     let isCancelled = false;
     const fetchCurrentTTS = async () => {
-      handleStop();
       if (!audioCacheRef.current[selectedVoice]) {
         setIsTtsLoading(true);
         const url = await fetchNeuralTTS(selectedVoice, text, null, {
@@ -265,30 +259,6 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
       isCancelled = true;
     };
   }, [text, selectedVoice]);
-
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.playbackRate = rate;
-    }
-  }, [rate]);
-
-  const playSimpleSpeech = (content: string, onEndCallback: (() => void) | null = null) => {
-    const synth = window.speechSynthesis;
-    synth.cancel();
-    const utterance = new SpeechSynthesisUtterance(content);
-    utterance.lang = 'en-US';
-    utterance.rate = rate;
-    utterance.onend = () => {
-      if (onEndCallback) {
-        onEndCallback();
-      } else {
-        setIsPlaying(false);
-        setIsPaused(false);
-        setListenCount((previous) => previous + 1);
-      }
-    };
-    synth.speak(utterance);
-  };
 
   const generateNewText = async (
     targetLengthLevel = lengthLevel,
@@ -315,7 +285,6 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
     setTranscribedText('');
     setEvaluationResult(null);
     setShowText(false);
-    handleStop();
     setCurrentAttempts([]);
 
     const safeLengthLevel = Number(targetLengthLevel) || 3;
@@ -426,97 +395,6 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
     }
   };
 
-  const handlePlay = async () => {
-    if (isPaused && audioRef.current && ttsAudioUrl) {
-      await audioRef.current.play();
-      setIsPaused(false);
-      setIsPlaying(true);
-      return;
-    }
-
-    if (isPaused) {
-      window.speechSynthesis.resume();
-      setIsPaused(false);
-      setIsPlaying(true);
-      return;
-    }
-
-    if (ttsAudioUrl && audioRef.current) {
-      audioRef.current.src = ttsAudioUrl;
-      audioRef.current.playbackRate = rate;
-      try {
-        await audioRef.current.play();
-        setIsPlaying(true);
-        setIsPaused(false);
-      } catch (error) {
-        console.error('Audio block:', error);
-        setApiError('浏览器自动播放拦截，已降级为系统本地机器语音。');
-        window.setTimeout(() => setApiError(''), 4000);
-        playSimpleSpeech(text);
-        setIsPlaying(true);
-        setIsPaused(false);
-      }
-    } else if (text) {
-      setApiError('超清语音 API 请求受限，当前已自动降级为系统基础机器语音。');
-      window.setTimeout(() => setApiError(''), 4000);
-      playSimpleSpeech(text);
-      setIsPlaying(true);
-      setIsPaused(false);
-    }
-  };
-
-  const handlePause = () => {
-    if (audioRef.current && isPlaying && ttsAudioUrl) {
-      audioRef.current.pause();
-    } else if (isPlaying) {
-      window.speechSynthesis.pause();
-    }
-    setIsPaused(true);
-    setIsPlaying(false);
-  };
-
-  const handleStop = () => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-    window.speechSynthesis.cancel();
-    setIsPlaying(false);
-    setIsPaused(false);
-    setHighlightStart(0);
-    setHighlightLength(0);
-  };
-
-  const handleAudioEnded = () => {
-    setIsPlaying(false);
-    setIsPaused(false);
-    setHighlightStart(0);
-    setHighlightLength(0);
-    setListenCount((previous) => previous + 1);
-  };
-
-  const handleTimeUpdate = () => {
-    if (!audioRef.current || !isPlaying) {
-      return;
-    }
-
-    const { currentTime, duration } = audioRef.current;
-    if (duration > 0.25 && text) {
-      const adjustedTime = Math.max(0, currentTime - 0.25);
-      const targetIndex = Math.floor((adjustedTime / (duration - 0.25)) * text.length);
-      let start = targetIndex;
-      while (start > 0 && !/\s/.test(text[start - 1])) {
-        start -= 1;
-      }
-      let end = targetIndex;
-      while (end < text.length && !/\s/.test(text[end])) {
-        end += 1;
-      }
-      setHighlightStart(Math.max(0, start));
-      setHighlightLength(Math.min(text.length, end) - start);
-    }
-  };
-
   const toggleRecording = async () => {
     setMediaError('');
     if (isRecording) {
@@ -530,7 +408,6 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
     }
 
     const recordingSession = requestScope.beginSession();
-    handleStop();
     setTranscribedText('Listening...');
     setEvaluationResult(null);
     try {
@@ -890,40 +767,10 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
     void DBUtils.set('shadow_history', nextHistory);
   };
 
-  const renderHighlightedText = () => {
-    if (!isPlaying && !isPaused) {
-      return (
-        <p className="text-base md:text-lg leading-relaxed text-slate-800 font-medium">
-          {text}
-        </p>
-      );
-    }
-
-    const before = text.substring(0, highlightStart);
-    const highlighted = text.substring(highlightStart, highlightStart + highlightLength);
-    const after = text.substring(highlightStart + highlightLength);
-
-    return (
-      <p className="text-base md:text-lg leading-relaxed text-slate-400 font-medium">
-        <span>{before}</span>
-        <span className="text-indigo-600 bg-indigo-50/50 rounded px-1 transition-colors duration-75">
-          {highlighted}
-        </span>
-        <span className="text-slate-800">{after}</span>
-      </p>
-    );
-  };
-
   const averageLevel = Math.round((lengthLevel + difficultyLevel) / 2);
 
   return (
     <div className="bg-slate-50 min-h-[calc(100vh-64px)] p-4 md:p-6 font-sans pb-20">
-      <audio
-        ref={audioRef}
-        onEnded={handleAudioEnded}
-        onTimeUpdate={handleTimeUpdate}
-        className="hidden"
-      />
       <div className="max-w-6xl mx-auto space-y-6">
         <header className="flex flex-col md:flex-row md:items-center space-y-3 md:space-y-0 pb-4 border-b border-slate-200">
           <div className="flex items-center space-x-3 cursor-pointer hover:opacity-80 transition" onClick={onBack}>
@@ -952,226 +799,165 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
             </div>
           )}
 
-          <div className="flex flex-col gap-3">
-            <div className="flex justify-center w-full relative z-30">
-              <div className="inline-flex items-center bg-white/90 backdrop-blur-md border border-slate-200/60 shadow-sm hover:shadow-md rounded-full px-5 py-2.5 text-xs font-medium text-slate-500 gap-5 transition-all">
-                <div className="flex items-center gap-1.5 hover:text-slate-800 transition-colors relative cursor-pointer group/voice">
-                  <Mic className="w-3.5 h-3.5 opacity-70" />
-                  <select
-                    value={selectedVoice}
-                    onChange={(event) => setSelectedVoice(event.target.value)}
-                    className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer appearance-none pl-0.5 pr-3 relative z-10"
-                  >
-                    <option value="Aoede">Aoede</option>
-                    <option value="Zephyr">Zephyr</option>
-                    <option value="Kore">Kore</option>
-                    <option value="Puck">Puck</option>
-                    <option value="Charon">Charon</option>
-                    <option value="Fenrir">Fenrir</option>
-                  </select>
-                  <ChevronRight className="w-3 h-3 absolute right-0 top-1 text-slate-400 rotate-90 opacity-60 group-hover/voice:opacity-100 transition-opacity pointer-events-none" />
-                </div>
-
-                <div className="w-px h-3.5 bg-slate-200"></div>
-
-                <div className="relative group/settings flex items-center gap-1.5 cursor-pointer hover:text-slate-800 transition-colors py-1">
-                  <Settings className="w-3.5 h-3.5 opacity-70" />
-                  <span className="font-bold text-slate-700">Lv.{averageLevel}</span>
-
-                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-3 w-56 bg-white/95 backdrop-blur-xl border border-slate-200/80 shadow-xl rounded-2xl p-4 opacity-0 invisible group-hover/settings:opacity-100 group-hover/settings:visible transition-all duration-200 z-50 transform origin-top group-hover/settings:scale-100 scale-95">
-                    <div className="space-y-5 cursor-default" onClick={(event) => event.stopPropagation()}>
-                      <div className="flex flex-col gap-2">
-                        <div className="flex justify-between text-xs items-center">
-                          <span className="text-slate-500 font-medium">句子长度 (Length)</span>
-                          <span className="font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
-                            L{lengthLevel}
-                          </span>
-                        </div>
-                        <input
-                          type="range"
-                          min="1"
-                          max="10"
-                          step="1"
-                          value={lengthLevel}
-                          onChange={(event) => setLengthLevel(parseInt(event.target.value, 10))}
-                          className="w-full h-1.5 bg-slate-100 rounded-full outline-none accent-indigo-500 cursor-pointer transition-all hover:h-2"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <div className="flex justify-between text-xs items-center">
-                          <span className="text-slate-500 font-medium">词汇难度 (Vocab)</span>
-                          <span className="font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
-                            L{difficultyLevel}
-                          </span>
-                        </div>
-                        <input
-                          type="range"
-                          min="1"
-                          max="10"
-                          step="1"
-                          value={difficultyLevel}
-                          onChange={(event) =>
-                            setDifficultyLevel(parseInt(event.target.value, 10))
-                          }
-                          className="w-full h-1.5 bg-slate-100 rounded-full outline-none accent-indigo-500 cursor-pointer transition-all hover:h-2"
-                        />
-                      </div>
-                    </div>
-                    <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-t border-l border-slate-200/80 rotate-45 rounded-tl-[2px]"></div>
-                  </div>
-                </div>
-
-                <div className="w-px h-3.5 bg-slate-200 hidden sm:block"></div>
-
-                <div
-                  className="hidden sm:flex items-center gap-1.5 hover:text-slate-800 transition-colors"
-                  title={`已听过 ${listenCount} 次`}
-                >
-                  <Headphones className="w-3.5 h-3.5 opacity-70" />
-                  <span className="font-bold text-slate-700">{listenCount}</span>
-                </div>
-
-                <div className="w-px h-3.5 bg-slate-200"></div>
-
-                <button
-                  onClick={() => setShowText(!showText)}
-                  className="flex items-center gap-1.5 hover:text-slate-800 transition-colors outline-none"
-                >
-                  {showText ? (
-                    <EyeOff className="w-3.5 h-3.5 opacity-70" />
-                  ) : (
-                    <Eye className="w-3.5 h-3.5 opacity-70" />
-                  )}
-                  <span className="font-bold text-slate-700">
-                    {showText ? '隐藏文本' : '显示文本'}
-                  </span>
-                </button>
-
-                {PreloadPipeline.cache.shadow && (
-                  <div
-                    className="absolute -right-0.5 -top-0.5 animate-in fade-in zoom-in duration-300"
-                    title="下一句资源已就绪"
-                  >
-                    <span className="relative flex h-2.5 w-2.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 border border-white"></span>
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="min-h-[80px] flex flex-col relative justify-center items-center w-full my-1">
-              {isGenerating ? (
+          <div className="flex flex-col gap-3 relative z-30">
+            {isGenerating ? (
+              <div className="min-h-[80px] flex flex-col justify-center items-center w-full my-1">
                 <div className="animate-pulse space-y-3 w-full max-w-lg">
                   <div className="h-3 bg-slate-200 rounded w-3/4 mx-auto"></div>
                   <div className="h-3 bg-slate-200 rounded w-1/2 mx-auto"></div>
                 </div>
-              ) : showText ? (
-                <div
-                  key={text}
-                  className="animate-in fade-in slide-in-from-right-4 duration-500 w-full text-center px-4"
-                >
-                  {renderHighlightedText()}
-                </div>
-              ) : (
-                <div
-                  className="flex flex-col items-center py-2 text-slate-400 cursor-pointer transition-colors hover:text-indigo-500 group"
-                  onClick={() => setShowText(true)}
-                >
-                  <Eye className="w-8 h-8 mb-1.5 opacity-40 group-hover:opacity-70 transition-opacity" />
-                  <p className="text-xs font-medium">点击显示文本内容</p>
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-center mb-2">
-              <div className="bg-white border border-slate-200 rounded-full p-1.5 flex items-center justify-center space-x-1.5 shadow-md mx-auto w-max">
-                {isPlaying ? (
-                  <button
-                    onClick={handlePause}
-                    className="w-12 h-12 flex items-center justify-center bg-indigo-100 text-indigo-700 hover:bg-indigo-200 rounded-full transition-colors"
-                    title="暂停"
-                  >
-                    <Pause className="w-5 h-5 fill-current" />
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => void handlePlay()}
-                    disabled={isGenerating || isTtsLoading || !ttsAudioUrl}
-                    className={`w-12 h-12 flex items-center justify-center rounded-full transition-all ${
-                      isGenerating || isTtsLoading || !ttsAudioUrl
-                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                        : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm hover:scale-105 active:scale-95'
-                    }`}
-                    title="播放神经语音"
-                  >
-                    {isTtsLoading ? (
-                      <RefreshCw className="w-5 h-5 animate-spin" />
-                    ) : (
-                      <Play className="w-5 h-5 fill-current ml-1" />
-                    )}
-                  </button>
-                )}
-
-                <button
-                  onClick={handleStop}
-                  className="w-10 h-10 flex items-center justify-center bg-transparent hover:bg-slate-100 text-slate-500 rounded-full transition-colors"
-                  disabled={!isPlaying && !isPaused}
-                  title="停止"
-                >
-                  <Square className="w-4 h-4 fill-current" />
-                </button>
-
-                <div className="px-1">
-                  <select
-                    value={rate}
-                    onChange={(event) => setRate(parseFloat(event.target.value))}
-                    className="text-sm border-none text-slate-600 font-bold bg-transparent outline-none cursor-pointer hover:text-indigo-600 transition-colors"
-                  >
-                    <option value="0.8">0.8x</option>
-                    <option value="1">1.0x</option>
-                    <option value="1.2">1.2x</option>
-                  </select>
-                </div>
-
-                <div className="w-px h-6 bg-slate-200 mx-1"></div>
-
-                <button
-                  onClick={() => void toggleRecording()}
-                  disabled={isGenerating || !text || text.includes('Click')}
-                  className={`w-12 h-12 flex items-center justify-center rounded-full transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                    isRecording
-                      ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-200 animate-pulse'
-                      : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm hover:scale-105 active:scale-95'
-                  }`}
-                  title={isRecording ? '结束录音并提交评分' : '开始您的跟读'}
-                >
-                  {isRecording ? (
-                    <Square className="w-5 h-5 fill-current" />
-                  ) : (
-                    <Mic className="w-5 h-5" />
-                  )}
-                </button>
-
-                <div className="w-px h-6 bg-slate-200 mx-1"></div>
-
-                <button
-                  onClick={() =>
-                    void generateNewText(lengthLevel, learningFocus, difficultyLevel)
-                  }
-                  disabled={isGenerating}
-                  className="w-12 h-12 flex items-center justify-center bg-transparent hover:bg-slate-100 text-slate-600 hover:text-indigo-600 rounded-full transition-all disabled:opacity-50"
-                  title="随机生成下一句"
-                >
-                  {isGenerating ? (
-                    <RefreshCw className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <ArrowRight className="w-6 h-6" />
-                  )}
-                </button>
               </div>
-            </div>
+            ) : (
+              <PromptAudioPanel
+                key={text}
+                text={text}
+                showText={showText}
+                listenCount={listenCount}
+                audioUrl={ttsAudioUrl}
+                audioStatus={isTtsLoading ? 'loading' : ttsAudioUrl ? 'ready' : 'idle'}
+                
+                title="Shadowing Prompt"
+                hiddenTextLabel="点击显示文本内容"
+                playButtonLabel="播放神经语音"
+                resumeButtonLabel="继续播放"
+                replayButtonLabel="重新播放"
+                
+                showListenCount={true}
+                showSpeedControl={true}
+                showTextToggle={true}
+                highlightText={true}
+
+                onShowTextChange={setShowText}
+                onEnsureAudio={async () => {
+                  if (ttsAudioUrl) return ttsAudioUrl;
+                  setIsTtsLoading(true);
+                  const url = await fetchNeuralTTS(selectedVoice, text, null, {
+                    scopeId: requestScope.scopeId,
+                    supersedeKey: `shadow:tts:${selectedVoice}`,
+                    origin: 'ui',
+                    sceneKey: 'shadow:tts'
+                  });
+                  if (typeof url === 'string') {
+                    audioCacheRef.current[selectedVoice] = url;
+                    setTtsAudioUrl(url);
+                  }
+                  setIsTtsLoading(false);
+                  return typeof url === 'string' ? url : null;
+                }}
+                onPlaybackStarted={() => {}}
+                onListenCompleted={() => {
+                  setListenCount((prev) => prev + 1);
+                }}
+                extraTopControls={
+                  <>
+                    <span className="h-3.5 w-px bg-slate-200" />
+                    <div className="flex items-center gap-1.5 hover:text-slate-800 transition-colors relative cursor-pointer group/voice">
+                      <Mic className="w-3.5 h-3.5 opacity-70" />
+                      <select
+                        value={selectedVoice}
+                        onChange={(event) => setSelectedVoice(event.target.value)}
+                        className="bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer appearance-none pr-4 relative z-10"
+                      >
+                        <option value="Aoede">Aoede</option>
+                        <option value="Zephyr">Zephyr</option>
+                        <option value="Kore">Kore</option>
+                        <option value="Puck">Puck</option>
+                        <option value="Charon">Charon</option>
+                        <option value="Fenrir">Fenrir</option>
+                      </select>
+                      <ChevronRight className="w-3 h-3 absolute right-0 top-1/2 -translate-y-1/2 text-slate-400 rotate-90 opacity-60 group-hover/voice:opacity-100 transition-opacity pointer-events-none" />
+                    </div>
+                    <span className="h-3.5 w-px bg-slate-200" />
+                    <div className="relative group/settings flex items-center gap-1.5 cursor-pointer hover:text-slate-800 transition-colors">
+                      <Settings className="w-3.5 h-3.5 opacity-70" />
+                      <span className="text-xs font-bold text-slate-700">Lv.{averageLevel}</span>
+                      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-3 w-56 bg-white/95 backdrop-blur-xl border border-slate-200/80 shadow-xl rounded-2xl p-4 opacity-0 invisible group-hover/settings:opacity-100 group-hover/settings:visible transition-all duration-200 z-50 transform origin-top group-hover/settings:scale-100 scale-95">
+                        <div className="space-y-5 cursor-default" onClick={(event) => event.stopPropagation()}>
+                          <div className="flex flex-col gap-2">
+                            <div className="flex justify-between text-xs items-center">
+                              <span className="text-slate-500 font-medium">句子长度 (Length)</span>
+                              <span className="font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
+                                L{lengthLevel}
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min="1"
+                              max="10"
+                              step="1"
+                              value={lengthLevel}
+                              onChange={(event) => setLengthLevel(parseInt(event.target.value, 10))}
+                              className="w-full h-1.5 bg-slate-100 rounded-full outline-none accent-indigo-500 cursor-pointer transition-all hover:h-2"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            <div className="flex justify-between text-xs items-center">
+                              <span className="text-slate-500 font-medium">词汇难度 (Vocab)</span>
+                              <span className="font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
+                                L{difficultyLevel}
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min="1"
+                              max="10"
+                              step="1"
+                              value={difficultyLevel}
+                              onChange={(event) =>
+                                setDifficultyLevel(parseInt(event.target.value, 10))
+                              }
+                              className="w-full h-1.5 bg-slate-100 rounded-full outline-none accent-indigo-500 cursor-pointer transition-all hover:h-2"
+                            />
+                          </div>
+                        </div>
+                        <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-t border-l border-slate-200/80 rotate-45 rounded-tl-[2px]"></div>
+                      </div>
+                    </div>
+                    {PreloadPipeline.cache.shadow && (
+                      <div
+                        className="absolute -right-3 -top-3 animate-in fade-in zoom-in duration-300"
+                        title="下一句资源已就绪"
+                      >
+                        <span className="relative flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 border border-white"></span>
+                        </span>
+                      </div>
+                    )}
+                  </>
+                }
+                extraBottomControls={
+                  <>
+                    <div className="w-px h-6 bg-slate-200 mx-1"></div>
+                    <button
+                      onClick={() => void toggleRecording()}
+                      disabled={!text || text.includes('Click')}
+                      className={`w-10 h-10 flex items-center justify-center rounded-full transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                        isRecording
+                          ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-200 animate-pulse'
+                          : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm hover:scale-105 active:scale-95'
+                      }`}
+                      title={isRecording ? '结束录音并提交评分' : '开始您的跟读'}
+                    >
+                      {isRecording ? (
+                        <Square className="w-4 h-4 fill-current" />
+                      ) : (
+                        <Mic className="w-4 h-4" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() =>
+                        void generateNewText(lengthLevel, learningFocus, difficultyLevel)
+                      }
+                      className="w-10 h-10 flex items-center justify-center bg-transparent hover:bg-slate-100 text-slate-600 hover:text-indigo-600 rounded-full transition-all disabled:opacity-50"
+                      title="随机生成下一句"
+                    >
+                      <ArrowRight className="w-5 h-5" />
+                    </button>
+                  </>
+                }
+              />
+            )}
 
             {(isRecording || isEvaluating || evaluationResult) && (
               <div className="pt-1">
