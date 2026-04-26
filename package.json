@@ -16,8 +16,8 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "ios:init": "tauri ios init --ci --skip-targets-install",
-    "ios:dev": "tauri ios dev",
-    "ios:build": "tauri ios build"
+    "ios:dev": "dotenv -e .env -- tauri ios dev",
+    "ios:build": "dotenv -e .env -- tauri ios build"
   },
   "dependencies": {
     "@google/genai": "^1.16.0",
@@ -30,14 +30,15 @@
   },
   "devDependencies": {
     "@tailwindcss/line-clamp": "^0.4.4",
+    "@tauri-apps/cli": "^2.8.0",
     "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/react": "^16.3.0",
     "@types/node": "^24.3.0",
     "@types/react": "^19.1.11",
     "@types/react-dom": "^19.1.7",
-    "@tauri-apps/cli": "^2.8.0",
     "@vitejs/plugin-react": "^5.0.2",
     "autoprefixer": "^10.4.21",
+    "dotenv-cli": "^11.0.0",
     "jsdom": "^26.1.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
