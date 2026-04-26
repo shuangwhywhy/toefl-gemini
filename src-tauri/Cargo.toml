@@ -5,6 +5,10 @@ description = "AI TOEFL Trainer desktop shell"
 authors = ["OpenAI Codex"]
 edition = "2021"
 
+[lib]
+name = "toefl_gemini"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 tauri-build = { version = "2.1.0", features = [] }
 
