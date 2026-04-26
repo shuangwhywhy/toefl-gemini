@@ -586,7 +586,11 @@ export function InterviewTrainingMode({ onBack }: { onBack: () => void }) {
 
   const retryAttemptEvaluation = async (attemptId: string) => {
     const attempt = state.attempts.find((a) => a.id === attemptId);
-    if (!attempt || !state.session || !activeQuestion) {
+    if (!attempt || !state.session) {
+      return;
+    }
+    const targetQuestion = state.session.questions.find((q) => q.id === attempt.questionId);
+    if (!targetQuestion) {
       return;
     }
 
@@ -622,7 +626,7 @@ export function InterviewTrainingMode({ onBack }: { onBack: () => void }) {
 
       const crossQuestionTextContext = buildCrossQuestionTextContext({
         session: state.session,
-        currentQuestionId: activeQuestion.id,
+        currentQuestionId: targetQuestion.id,
         currentStage: attemptForEvaluation.stage,
         attempts: state.attempts.map((a) => (a.id === attemptForEvaluation.id ? attemptForEvaluation : a)),
         evaluations: state.evaluations
@@ -630,7 +634,7 @@ export function InterviewTrainingMode({ onBack }: { onBack: () => void }) {
 
       const result = await evaluateInterviewTrainingStage({
         session: state.session,
-        question: activeQuestion,
+        question: targetQuestion,
         stage: attemptForEvaluation.stage,
         inputType: attemptForEvaluation.inputType,
         transcript: attemptForEvaluation.transcript,
