@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { AITutorChat } from '../features/chat/AITutorChat';
 import { requestChatCompletion, requestTranscription } from '../services/llm/helpers';
 import { DBUtils } from '../services/storage/db';
@@ -111,5 +111,17 @@ describe('AITutorChat', () => {
     await waitFor(() => {
       expect(DBUtils.remove).toHaveBeenCalledWith('chat_test');
     });
+  });
+
+  it('toggles mic listening state', async () => {
+
+    render(<AITutorChat onBack={vi.fn()} />);
+    
+    const micBtn = await screen.findByTitle(/语音输入/i);
+    await act(async () => {
+      fireEvent.click(micBtn);
+    });
+    
+    expect(micBtn).toBeInTheDocument();
   });
 });

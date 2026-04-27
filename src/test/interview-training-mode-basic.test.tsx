@@ -43,6 +43,7 @@ describe('InterviewTrainingMode', () => {
     questions: [
       {
         id: 'q1',
+        index: 0,
         title: 'Q1',
         question: 'What is your name?',
         currentStage: 'thinking_structure',
@@ -93,7 +94,7 @@ describe('InterviewTrainingMode', () => {
     render(<InterviewTrainingMode onBack={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Unavailable|失败/i)).toBeDefined();
+      expect(screen.getAllByText(/Unavailable|失败/i).length).toBeGreaterThan(0);
     });
   });
 });

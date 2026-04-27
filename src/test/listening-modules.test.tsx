@@ -53,12 +53,14 @@ describe('ListeningModules', () => {
       
       expect(screen.getByText(/准备学术短文/i)).toBeDefined();
       
-      await waitFor(async () => {
-        expect(await screen.findByText(/Hello/i)).toBeDefined();
-        expect(screen.getByRole('textbox')).toBeDefined();
-      });
+      expect(await screen.findByText(/Hello/i)).toBeInTheDocument();
+      // Use getAllByRole because AITutorChat also has a textbox
+      const inputs = screen.getAllByRole('textbox');
+      expect(inputs.length).toBeGreaterThan(0);
 
-      const input = screen.getByRole('textbox');
+
+
+      const input = screen.getAllByRole('textbox')[0];
       fireEvent.change(input, { target: { value: 'world' } });
       fireEvent.click(screen.getByText('完成校验'));
       
