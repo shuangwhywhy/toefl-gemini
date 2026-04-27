@@ -64,7 +64,7 @@ export function readQuestionComprehensionAnalysis(
       promptTextVisibleOnSubmit: typeof raw.promptTextVisibleOnSubmit === 'boolean' ? raw.promptTextVisibleOnSubmit : false,
       promptTextWasEverShown: typeof raw.promptTextWasEverShown === 'boolean' ? raw.promptTextWasEverShown : false,
       promptListenCount: typeof raw.promptListenCount === 'number' ? raw.promptListenCount : 0,
-      likelyAnsweredFromListening: typeof raw.likelyAnsweredFromListening === 'boolean' ? raw.likelyAnsweredFromListening : true,
+      likelyAnsweredFromListening: typeof raw.likelyAnsweredFromListening === 'boolean' ? raw.likelyAnsweredFromListening : false,
       evidence: typeof raw.evidence === 'string' ? raw.evidence : '',
     };
   }

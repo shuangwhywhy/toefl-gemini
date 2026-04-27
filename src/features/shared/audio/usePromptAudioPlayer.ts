@@ -54,40 +54,52 @@ export function usePromptAudioPlayer({
   const play = useCallback(async () => {
     setError(null);
 
-    if (isPaused && audioRef.current && audioRef.current.src) {
-      await audioRef.current.play();
-      setIsPaused(false);
-      setIsPlaying(true);
-      return;
-    }
-
     if (isPaused) {
-      window.speechSynthesis.resume();
-      setIsPaused(false);
-      setIsPlaying(true);
-      return;
-    }
-
-    setIsLoading(true);
-    const ensuredUrl = audioUrl ?? (await onEnsureAudio());
-    setIsLoading(false);
-
-    if (ensuredUrl && audioRef.current) {
-      audioRef.current.src = ensuredUrl;
-      audioRef.current.playbackRate = rate;
-      try {
-        await audioRef.current.play();
-        onPlaybackStarted();
-        setIsPlaying(true);
+      setIsLoading(false);
+      if (audioRef.current && audioRef.current.src) {
+        try {
+          await audioRef.current.play();
+          setIsPaused(false);
+          setIsPlaying(true);
+          return;
+        } catch (playError) {
+          console.warn('Prompt audio resume blocked:', playError);
+        }
+      } else {
+        window.speechSynthesis.resume();
         setIsPaused(false);
+        setIsPlaying(true);
         return;
-      } catch (playError) {
-        console.warn('Prompt audio playback blocked:', playError);
-        setError('Audio playback was blocked, using system speech instead.');
       }
     }
 
-    playSimpleSpeech();
+    setIsLoading(true);
+    try {
+      const ensuredUrl = audioUrl ?? (await onEnsureAudio());
+
+      if (ensuredUrl && audioRef.current) {
+        audioRef.current.src = ensuredUrl;
+        audioRef.current.playbackRate = rate;
+        try {
+          await audioRef.current.play();
+          onPlaybackStarted();
+          setIsPlaying(true);
+          setIsPaused(false);
+          return;
+        } catch (playError) {
+          console.warn('Prompt audio playback blocked:', playError);
+          setError('Audio playback was blocked, using system speech instead.');
+        }
+      }
+
+      playSimpleSpeech();
+    } catch (e) {
+      console.error('Failed to ensure audio:', e);
+      setError('Failed to load audio. Using system speech fallback.');
+      playSimpleSpeech();
+    } finally {
+      setIsLoading(false);
+    }
   }, [audioUrl, isPaused, onEnsureAudio, onPlaybackStarted, playSimpleSpeech, rate]);
 
   const pause = useCallback(() => {
@@ -98,6 +110,7 @@ export function usePromptAudioPlayer({
     }
     setIsPaused(true);
     setIsPlaying(false);
+    setIsLoading(false);
   }, [isPlaying]);
 
   const stop = useCallback(() => {
@@ -108,6 +121,7 @@ export function usePromptAudioPlayer({
     window.speechSynthesis.cancel();
     setIsPlaying(false);
     setIsPaused(false);
+    setIsLoading(false);
     resetHighlight();
   }, []);
 

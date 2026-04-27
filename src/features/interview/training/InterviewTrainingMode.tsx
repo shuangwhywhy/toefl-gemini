@@ -238,7 +238,13 @@ export function InterviewTrainingMode({ onBack }: { onBack: () => void }) {
   }, [beginSession, hydrateSession, isSessionCurrent, scopeId]);
 
   useEffect(() => {
-    void initialize();
+    let cleanup: (() => void) | undefined;
+    initialize().then((c) => {
+      cleanup = c;
+    });
+    return () => {
+      if (cleanup) cleanup();
+    };
   }, [initialize]);
 
   const activeQuestion = useMemo(
