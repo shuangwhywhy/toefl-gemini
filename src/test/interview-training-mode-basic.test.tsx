@@ -78,6 +78,7 @@ describe('InterviewTrainingMode', () => {
   it('handles corrupted session', async () => {
     vi.mocked(loadOrCreateTrainingSession).mockResolvedValue({
       kind: 'corrupted',
+      error: null,
       session: mockSession as any
     });
 

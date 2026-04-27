@@ -7,8 +7,9 @@ const mockModel: modelCatalog.LLMModelDefinition = {
   displayName: 'Test Model',
   bucket: 'text',
   capabilities: ['text'],
-  pricing: { input1M: 0, output1M: 0 } as any,
   quota: { rpm: 2, rpd: 10, tpm: 100 },
+
+
   source: 'ai-studio-active-limits'
 };
 
@@ -34,7 +35,7 @@ describe('QuotaManager', () => {
     const histories = createEmptyQuotaHistories();
     const manager = new QuotaManager(mockClock(now), histories);
     const context = buildQuotaContext({ 
-      route: { service: 'text', modelBucket: 'text' },
+      route: { platform: 'google', service: 'text', modelBucket: 'text' },
       origin: 'ui'
     });
 
@@ -59,7 +60,7 @@ describe('QuotaManager', () => {
     const histories = createEmptyQuotaHistories();
     const manager = new QuotaManager(mockClock(now), histories);
     const context = buildQuotaContext({ 
-      route: { service: 'text', modelBucket: 'text' },
+      route: { platform: 'google', service: 'text', modelBucket: 'text' },
       estimatedInputTokens: 60
     });
 
@@ -81,7 +82,7 @@ describe('QuotaManager', () => {
     // For 'ui' origin, soft ratio is 0.85
     // RPM=2, softMax = floor(2 * 0.85) = 1
     const context = buildQuotaContext({ 
-      route: { service: 'text', modelBucket: 'text' },
+      route: { platform: 'google', service: 'text', modelBucket: 'text' },
       origin: 'ui'
     });
 
@@ -101,7 +102,7 @@ describe('QuotaManager', () => {
     const histories = createEmptyQuotaHistories();
     const clock = { now: () => now };
     const manager = new QuotaManager(clock, histories);
-    const context = buildQuotaContext({ route: { service: 'text' } });
+    const context = buildQuotaContext({ route: { platform: 'google', service: 'text' } });
 
     manager.markModelBusy('test-model');
     
@@ -119,7 +120,7 @@ describe('QuotaManager', () => {
     const histories = createEmptyQuotaHistories();
     const clock = { now: () => now };
     const manager = new QuotaManager(clock, histories);
-    const context = buildQuotaContext({ route: { service: 'text' } });
+    const context = buildQuotaContext({ route: { platform: 'google', service: 'text' } });
 
     const modelB: modelCatalog.LLMModelDefinition = { ...mockModel, id: 'model-b' };
     vi.mocked(modelCatalog.getCandidateModels).mockReturnValue([mockModel, modelB]);
@@ -141,7 +142,7 @@ describe('QuotaManager', () => {
     const histories = createEmptyQuotaHistories();
     const clock = { now: () => now };
     const manager = new QuotaManager(clock, histories);
-    const context = buildQuotaContext({ route: { service: 'text' } });
+    const context = buildQuotaContext({ route: { platform: 'google', service: 'text' } });
 
     const r1 = manager.selectCandidate(context);
     manager.recordStarted(r1.selection!, 10);

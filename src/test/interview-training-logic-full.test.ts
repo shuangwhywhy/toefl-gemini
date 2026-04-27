@@ -6,19 +6,19 @@ import {
   getAttemptsForActiveStage, 
   getLatestEvaluationForActiveStage 
 } from '../features/interview/training/interviewTrainingSelectors';
-import type { InterviewTrainingSession, TrainingAttempt, StageEvaluation } from '../types';
+import type { InterviewTrainingSession, TrainingAttempt, StageEvaluation } from '../features/interview/types';
 
 describe('Interview Training Logic (Reducer & Selectors)', () => {
   const mockSession: InterviewTrainingSession = {
     id: 's1',
     activeQuestionId: 'q1',
-    activeStage: 'personal_anchor',
+    activeStage: 'thinking_structure',
     questions: [
       {
         id: 'q1',
         title: 'Q1',
         stages: {
-          personal_anchor: { status: 'idle' },
+          thinking_structure: { status: 'idle' },
           role_play: { status: 'idle' }
         }
       }
@@ -32,7 +32,7 @@ describe('Interview Training Logic (Reducer & Selectors)', () => {
     id: 'a1',
     sessionId: 's1',
     questionId: 'q1',
-    stage: 'personal_anchor',
+    stage: 'thinking_structure',
     createdAt: '2024-01-01T12:00:00Z'
   } as any;
 
@@ -46,7 +46,7 @@ describe('Interview Training Logic (Reducer & Selectors)', () => {
     it('handles SESSION_LOADED', () => {
       const state = interviewTrainingReducer(initialInterviewTrainingState, {
         type: 'SESSION_LOADED',
-        source: 'history',
+        source: 'created_fresh',
         session: mockSession,
         attempts: [mockAttempt],
         evaluations: [mockEvaluation]
@@ -147,8 +147,8 @@ describe('Interview Training Logic (Reducer & Selectors)', () => {
 
     it('getStageState works', () => {
       expect(getStageState(null, null, null)).toBeNull();
-      expect(getStageState(mockSession, 'q1', 'personal_anchor')).toEqual({ status: 'idle' });
-      expect(getStageState(mockSession, 'q2', 'personal_anchor')).toBeNull();
+      expect(getStageState(mockSession, 'q1', 'thinking_structure')).toEqual({ status: 'idle' });
+      expect(getStageState(mockSession, 'q2', 'thinking_structure')).toBeNull();
     });
 
     it('getAttemptsForActiveStage works', () => {
@@ -170,7 +170,7 @@ describe('Interview Training Logic (Reducer & Selectors)', () => {
         questions: [{
           ...mockSession.questions[0],
           stages: {
-            personal_anchor: { status: 'idle', latestEvaluationId: 'e1' }
+            thinking_structure: { status: 'idle', latestEvaluationId: 'e1' }
           } as any
         }]
       } as any;
@@ -182,7 +182,7 @@ describe('Interview Training Logic (Reducer & Selectors)', () => {
         questions: [{
           ...mockSession.questions[0],
           stages: {
-            personal_anchor: { status: 'idle', latestAttemptId: 'a1' }
+            thinking_structure: { status: 'idle', latestAttemptId: 'a1' }
           } as any
         }]
       } as any;

@@ -14,7 +14,7 @@ vi.mock('../services/storage/db', () => ({
 describe('LLM Coverage Deep', () => {
   describe('config.ts edge cases', () => {
     it('throws for unsupported route service', () => {
-      expect(() => resolveRoutePolicy({ service: 'unknown' as any }))
+      expect(() => resolveRoutePolicy({ platform: 'test', service: 'unknown' as any }))
         .toThrow(/Unsupported LLM route service/);
     });
   });

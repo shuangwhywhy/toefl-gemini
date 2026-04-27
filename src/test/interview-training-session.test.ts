@@ -34,7 +34,7 @@ describe('InterviewTrainingSessionFactory', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     PreloadPipeline.inFlight = {};
-    PreloadPipeline.cache = {};
+    PreloadPipeline.cache = { shadow: null, interview: null, listening: null, dictation: null };
   });
 
   it('creates an empty stage state', () => {

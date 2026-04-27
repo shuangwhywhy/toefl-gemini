@@ -115,7 +115,9 @@ describe('AITutorChat', () => {
 
   it('toggles mic listening state', async () => {
 
-    render(<AITutorChat onBack={vi.fn()} />);
+    render(<AITutorChat chatId="test" initialAdvice="Hi" contextText="Context" />);
+
+
     
     const micBtn = await screen.findByTitle(/语音输入/i);
     await act(async () => {

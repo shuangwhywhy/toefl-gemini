@@ -36,7 +36,7 @@ vi.mock('../features/interview/interviewGeneration', () => ({
 describe('PreloadTasks', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    PreloadPipeline.cache = {};
+    PreloadPipeline.cache = { shadow: null, interview: null, listening: null, dictation: null };
   });
 
   it('queues shadow preload and caches result', async () => {
