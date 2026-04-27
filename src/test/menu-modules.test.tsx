@@ -1,0 +1,29 @@
+import { describe, expect, it, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { MainMenuModule, SpeakingMenuModule, ListeningMenuModule } from '../features/navigation/MenuModules';
+
+describe('MenuModules', () => {
+  it('renders MainMenuModule and triggers navigation', () => {
+    const onNavigate = vi.fn();
+    render(<MainMenuModule onNavigate={onNavigate} />);
+    
+    const listeningBtn = screen.getByText(/听力/i);
+    const speakingBtn = screen.getByText(/口语/i);
+    
+    expect(listeningBtn).toBeDefined();
+    
+    fireEvent.click(listeningBtn);
+    expect(onNavigate).toHaveBeenCalledWith('listening_menu');
+  });
+
+  it('renders SpeakingMenuModule and triggers navigation', () => {
+    const onNavigate = vi.fn();
+    const onBack = vi.fn();
+    const preloadStatus = {} as any;
+    render(<SpeakingMenuModule onNavigate={onNavigate} onBack={onBack} preloadStatus={preloadStatus} />);
+    
+    const shadowBtn = screen.getByText(/Repeat/i);
+    fireEvent.click(shadowBtn);
+    expect(onNavigate).toHaveBeenCalledWith('shadow');
+  });
+});
