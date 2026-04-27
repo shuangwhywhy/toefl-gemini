@@ -5,8 +5,8 @@ import '@testing-library/jest-dom';
 import { PromptAudioPanel } from '../features/shared/audio/PromptAudioPanel';
 
 // Mock usePromptAudioPlayer
-vi.mock('../features/shared/audio/usePromptAudioPlayer', () => ({
-  usePromptAudioPlayer: vi.fn().mockReturnValue({
+const { usePromptAudioPlayerMock } = vi.hoisted(() => ({
+  usePromptAudioPlayerMock: vi.fn().mockReturnValue({
     audioRef: { current: null },
     rate: 1,
     setRate: vi.fn(),
@@ -23,6 +23,10 @@ vi.mock('../features/shared/audio/usePromptAudioPlayer', () => ({
     handleEnded: vi.fn(),
     handleTimeUpdate: vi.fn()
   })
+}));
+
+vi.mock('../features/shared/audio/usePromptAudioPlayer', () => ({
+  usePromptAudioPlayer: usePromptAudioPlayerMock
 }));
 
 describe('PromptAudioPanel', () => {
@@ -45,8 +49,13 @@ describe('PromptAudioPanel', () => {
     render(<PromptAudioPanel {...defaultProps} />);
     expect(screen.getByText('This is a test prompt')).toBeInTheDocument();
     expect(screen.getByText('Audio prompt')).toBeInTheDocument();
-    expect(screen.getByTitle('Completed listens')).toBeInTheDocument();
+    expect(screen.getByText(/Listen count:/i)).toBeInTheDocument();
     expect(screen.getByText('2')).toBeInTheDocument();
+    
+    // Check default buttons
+    expect(screen.getByTitle('Play')).toBeInTheDocument();
+    expect(screen.getByTitle('Stop')).toBeInTheDocument();
+    expect(screen.getByTitle('Replay')).toBeInTheDocument();
   });
 
   it('allows customizing labels via props', () => {
@@ -60,8 +69,39 @@ describe('PromptAudioPanel', () => {
       />
     );
     expect(screen.getByText('Shadowing Prompt')).toBeInTheDocument();
-    expect(screen.getByText('播放神经语音')).toBeInTheDocument();
-    expect(screen.getByText('重新播放')).toBeInTheDocument();
+    expect(screen.getByTitle('播放神经语音')).toBeInTheDocument();
+    expect(screen.getByTitle('重新播放')).toBeInTheDocument();
+  });
+
+  it('renders loading state', () => {
+    usePromptAudioPlayerMock.mockReturnValueOnce({
+      ...usePromptAudioPlayerMock(),
+      isLoading: true
+    } as any);
+
+    const { container } = render(<PromptAudioPanel {...defaultProps} />);
+    // RefreshCw icon with animate-spin class should be present
+    expect(container.querySelector('.animate-spin')).toBeInTheDocument();
+  });
+
+  it('renders error state', () => {
+    usePromptAudioPlayerMock.mockReturnValueOnce({
+      ...usePromptAudioPlayerMock(),
+      error: 'Test Error Message'
+    } as any);
+
+    render(<PromptAudioPanel {...defaultProps} />);
+    expect(screen.getByText('Test Error Message')).toBeInTheDocument();
+  });
+
+  it('renders paused state with resume label', () => {
+    usePromptAudioPlayerMock.mockReturnValueOnce({
+      ...usePromptAudioPlayerMock(),
+      isPaused: true
+    } as any);
+
+    render(<PromptAudioPanel {...defaultProps} resumeButtonLabel="Resume Me" />);
+    expect(screen.getByTitle('Resume Me')).toBeInTheDocument();
   });
 
   it('toggles text visibility', () => {
@@ -94,7 +134,21 @@ describe('PromptAudioPanel', () => {
         showListenCount={false} 
       />
     );
-    expect(screen.queryByTitle('Completed listens')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Prompt audio speed')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Listen count/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/1x/i)).not.toBeInTheDocument();
+  });
+
+  it('calls stop when forceStop becomes true', () => {
+    const stopSpy = vi.fn();
+    usePromptAudioPlayerMock.mockReturnValue({
+      ...usePromptAudioPlayerMock(),
+      stop: stopSpy
+    } as any);
+
+    const { rerender } = render(<PromptAudioPanel {...defaultProps} forceStop={false} />);
+    expect(stopSpy).not.toHaveBeenCalled();
+
+    rerender(<PromptAudioPanel {...defaultProps} forceStop={true} />);
+    expect(stopSpy).toHaveBeenCalled();
   });
 });

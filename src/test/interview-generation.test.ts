@@ -122,14 +122,13 @@ describe('interview generation helpers', () => {
     expect(requestOptions).toMatchObject({
       scopeId: 'interview-scope',
       supersedeKey: 'interview:generate',
+      isBackground: false,
       origin: 'ui',
       sceneKey: 'interview:generate',
       disableJsonFixer: true,
       businessContext: {
         task: 'interview',
-        promptVersion: INTERVIEW_PROMPT_VERSION,
-        seed: 'manual-seed',
-        mode: 'manual'
+        promptVersion: INTERVIEW_PROMPT_VERSION
       }
     });
 
@@ -147,5 +146,35 @@ describe('interview generation helpers', () => {
     );
 
     expect(session.questions[0].audioUrl).toBe('https://example.com/q1.wav');
+  });
+
+  it('verifies background generation options', async () => {
+    hoisted.fetchGeminiTextMock.mockResolvedValue({
+      topic: 'Topic', q1: 'Q1', q2: 'Q2', q3: 'Q3', q4: 'Q4'
+    });
+    hoisted.fetchNeuralTtsMock.mockResolvedValue('url');
+
+    await generateInterviewSession({
+      voice: 'Puck',
+      scopeId: 'bg-scope',
+      supersedeKey: 'bg-gen',
+      firstTtsSupersedeKey: 'bg-tts',
+      mode: 'preload',
+      isBackground: true
+    });
+
+    const geminiOptions = hoisted.fetchGeminiTextMock.mock.calls[0][6];
+    expect(geminiOptions).toMatchObject({
+      scopeId: 'bg-scope',
+      isBackground: true,
+      origin: 'preload'
+    });
+
+    const ttsOptions = hoisted.fetchNeuralTtsMock.mock.calls[0][3];
+    expect(ttsOptions).toMatchObject({
+      scopeId: 'bg-scope',
+      isBackground: true,
+      origin: 'preload'
+    });
   });
 });
