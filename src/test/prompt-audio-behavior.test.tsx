@@ -68,35 +68,96 @@ describe('usePromptAudioPlayer behavior', () => {
     expect(mockSpeechSynthesis.cancel).toHaveBeenCalled();
   });
 
-  it('updates highlight on timeUpdate', () => {
+  it('updates highlight on timeUpdate with correct word boundaries', () => {
+    const text = 'Quick brown fox jumps.';
     const { result } = renderHook(() => usePromptAudioPlayer({
         ...defaultInput,
-        text: 'This is a test sentence.'
+        text
     }));
 
-    // Simulate audio element
     const mockAudio = {
-      currentTime: 1,
+      currentTime: 0,
       duration: 10,
       pause: vi.fn(),
     };
     result.current.audioRef.current = mockAudio as any;
     
+    // Simulate playing state
     act(() => {
-        // @ts-ignore - setting isPlaying manually via hook call isn't possible, 
-        // but we can simulate the state transition by calling play first
         result.current.play();
     });
 
+    // Case 1: Start of the sentence
+    mockAudio.currentTime = 0.3; // adjustedTime = 0.05
+    // (0.05 / 9.75) * 22 = ~0.11 -> targetIndex 0
+    act(() => { result.current.handleTimeUpdate(); });
+    expect(result.current.highlightStart).toBe(0);
+    expect(result.current.highlightLength).toBe(5); // 'Quick'
+
+    // Case 2: Middle of a word
+    mockAudio.currentTime = 3.25; // adjustedTime = 3.0
+    // (3.0 / 9.75) * 22 = ~6.7 -> targetIndex 6
+    // 'Quick brown fox jumps.' -> index 6 is 'b'
+    act(() => { result.current.handleTimeUpdate(); });
+    expect(result.current.highlightStart).toBe(6);
+    expect(result.current.highlightLength).toBe(5); // 'brown'
+
+    // Case 3: End of the sentence
+    mockAudio.currentTime = 10; // adjustedTime = 9.75
+    // (9.75 / 9.75) * 22 = 22 -> targetIndex 22
+    act(() => { result.current.handleTimeUpdate(); });
+    expect(result.current.highlightStart).toBe(16);
+    expect(result.current.highlightLength).toBe(6); // 'jumps.'
+  });
+
+  it('updates playbackRate when rate changes', () => {
+    const { result } = renderHook(() => usePromptAudioPlayer(defaultInput));
+    const mockAudio = { playbackRate: 1, pause: vi.fn() };
+    result.current.audioRef.current = mockAudio as any;
+
     act(() => {
-      result.current.handleTimeUpdate();
+      result.current.setRate(1.5);
     });
 
-    // With currentTime=1, duration=10, adjustedTime=0.75
-    // targetIndex = floor(0.75 / 9.75 * 26) = floor(2)
-    // 'This is a test sentence.' -> index 2 is 'i'
-    // Expected highlight: 'This' (index 0 to 4)
-    expect(result.current.highlightStart).toBe(0);
-    expect(result.current.highlightLength).toBe(4);
+    expect(mockAudio.playbackRate).toBe(1.5);
+  });
+
+  it('falls back to SpeechSynthesis when audio playback fails', async () => {
+    const { result } = renderHook(() => usePromptAudioPlayer(defaultInput));
+    const mockAudio = {
+      play: vi.fn().mockRejectedValue(new Error('Blocked')),
+      pause: vi.fn(),
+      src: '',
+      playbackRate: 1,
+    };
+    result.current.audioRef.current = mockAudio as any;
+
+    await act(async () => {
+      await result.current.play();
+    });
+
+    expect(mockSpeechSynthesis.speak).toHaveBeenCalled();
+    expect(result.current.error).toContain('Audio playback was blocked');
+  });
+
+  it('cancels playback on unmount', () => {
+    const { unmount } = renderHook(() => usePromptAudioPlayer(defaultInput));
+    unmount();
+    expect(mockSpeechSynthesis.cancel).toHaveBeenCalled();
+  });
+
+  it('handles playback ended', () => {
+    const onListenCompleted = vi.fn();
+    const { result } = renderHook(() => usePromptAudioPlayer({
+      ...defaultInput,
+      onListenCompleted
+    }));
+
+    act(() => {
+      result.current.handleEnded();
+    });
+
+    expect(result.current.isPlaying).toBe(false);
+    expect(onListenCompleted).toHaveBeenCalled();
   });
 });

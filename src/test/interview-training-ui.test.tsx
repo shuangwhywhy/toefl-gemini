@@ -7,6 +7,10 @@ import type {
 } from '../features/interview/types';
 import { CurrentQuestionPanel } from '../features/interview/training/components/CurrentQuestionPanel';
 import { StageAttemptPanel } from '../features/interview/training/components/StageAttemptPanel';
+import { StageSwitcher } from '../features/interview/training/components/StageSwitcher';
+import { AttemptHistory } from '../features/interview/training/components/AttemptHistory';
+import { QuestionSwitcher } from '../features/interview/training/components/QuestionSwitcher';
+import { LatestFeedbackPanel } from '../features/interview/training/components/LatestFeedbackPanel';
 
 const now = '2026-01-01T00:00:00.000Z';
 const promptText =
@@ -244,5 +248,130 @@ describe('interview training voice-first UI', () => {
     expect(screen.getByRole('button', { name: /start recording/i })).toBeInTheDocument();
     expect(screen.getByText(/use text fallback/i)).toBeInTheDocument();
     expect(screen.getByText(/0s/i)).toBeInTheDocument();
+  });
+
+  it('renders StageSwitcher with correct status tones and allows selection', () => {
+    const onSelect = vi.fn();
+    const stages: any = {
+      thinking_structure: { status: 'in_progress' },
+      english_units: { status: 'submitted' },
+      full_english_answer: { status: 'reviewed' },
+      vocabulary_upgrade: { status: 'not_started' },
+      final_practice: { status: 'not_started' }
+    };
+
+    const { container } = render(
+      <StageSwitcher 
+        activeStage="thinking_structure" 
+        stages={stages} 
+        onSelect={onSelect} 
+      />
+    );
+
+    // Check for stage labels
+    expect(screen.getByText(/Structure First/i)).toBeInTheDocument();
+    expect(screen.getByText(/English Units/i)).toBeInTheDocument();
+
+    // Check for status tone colors (by class)
+    // in_progress -> bg-blue-400
+    const inProgressDot = container.querySelector('.bg-blue-400');
+    expect(inProgressDot).toBeInTheDocument();
+
+    // reviewed -> bg-emerald-500
+    const reviewedDot = container.querySelector('.bg-emerald-500');
+    expect(reviewedDot).toBeInTheDocument();
+
+    // Selection
+    fireEvent.click(screen.getByText(/English units/i));
+    expect(onSelect).toHaveBeenCalledWith('english_units');
+  });
+
+  it('renders AttemptHistory with limited items and retry button', () => {
+    const onRetryAttempt = vi.fn();
+    const attempts: any[] = [
+      { id: '1', stage: 'thinking_structure', status: 'failed', transcript: 'Fail 1', createdAt: now },
+      { id: '2', stage: 'english_units', status: 'evaluated', transcript: 'Success 2', createdAt: now },
+      { id: '3', stage: 'full_english_answer', status: 'evaluated', transcript: 'Success 3', createdAt: now },
+      { id: '4', stage: 'vocabulary_upgrade', status: 'evaluated', transcript: 'Success 4', createdAt: now },
+      { id: '5', stage: 'final_practice', status: 'evaluated', transcript: 'Success 5', createdAt: now },
+      { id: '6', stage: 'final_practice', status: 'evaluated', transcript: 'Success 6', createdAt: now },
+      { id: '7', stage: 'final_practice', status: 'evaluated', transcript: 'Success 7', createdAt: now },
+    ];
+
+    render(
+      <AttemptHistory attempts={attempts} onRetryAttempt={onRetryAttempt} />
+    );
+
+    // Should only show 6 items
+    expect(screen.getByText('Fail 1')).toBeInTheDocument();
+    expect(screen.getByText('Success 6')).toBeInTheDocument();
+    expect(screen.queryByText('Success 7')).not.toBeInTheDocument();
+
+    // Retry button for failed item
+    const retryBtn = screen.getByRole('button', { name: /retry eval/i });
+    fireEvent.click(retryBtn);
+    expect(onRetryAttempt).toHaveBeenCalledWith('1');
+  });
+
+  it('shows Audio answer label when transcript is missing in AttemptHistory', () => {
+    const attempts: any[] = [
+      { id: '1', stage: 'thinking_structure', status: 'evaluated', inputType: 'audio', durationSec: 45, createdAt: now },
+    ];
+    render(<AttemptHistory attempts={attempts} />);
+    expect(screen.getByText(/Audio answer · 45s/i)).toBeInTheDocument();
+  });
+
+  it('renders QuestionSwitcher with active state and reviewed status', () => {
+    const onSelect = vi.fn();
+    const session: any = {
+      activeQuestionId: 'q1',
+      questions: [
+        { id: 'q1', index: 0, question: 'Prompt 1', stages: { thinking_structure: { status: 'not_started' } } },
+        { id: 'q2', index: 1, question: 'Prompt 2', stages: { thinking_structure: { status: 'reviewed' } } },
+      ]
+    };
+
+    const { container } = render(<QuestionSwitcher session={session} onSelect={onSelect} />);
+
+    expect(screen.getByText('Prompt 1')).toBeInTheDocument();
+    expect(screen.getByText('Prompt 2')).toBeInTheDocument();
+
+    // q1 is active -> bg-emerald-50
+    expect(screen.getByText('Prompt 1').closest('button')).toHaveClass('bg-emerald-50');
+
+    // q2 has a reviewed stage -> check icon exists
+    const checkIcon = container.querySelector('svg.text-emerald-500');
+    expect(checkIcon).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Prompt 2'));
+    expect(onSelect).toHaveBeenCalledWith('q2');
+  });
+
+  it('renders LatestFeedbackPanel with score and feedback', () => {
+    const onGoToRecommendation = vi.fn();
+    const evaluation: any = {
+      id: 'eval1',
+      stage: 'thinking_structure',
+      score: 85,
+      mainIssue: 'Test Issue',
+      feedbackSummary: 'Test Summary',
+      details: {}
+    };
+
+    render(
+      <LatestFeedbackPanel 
+        evaluation={evaluation} 
+        onGoToRecommendation={onGoToRecommendation} 
+      />
+    );
+
+    expect(screen.getByText('85')).toBeInTheDocument();
+    expect(screen.getByText('Test Issue')).toBeInTheDocument();
+    expect(screen.getByText('Test Summary')).toBeInTheDocument();
+  });
+
+  it('renders LatestFeedbackPanel empty state', () => {
+    render(<LatestFeedbackPanel evaluation={null} onGoToRecommendation={vi.fn()} />);
+    expect(screen.getByText(/No feedback for this stage yet/i)).toBeInTheDocument();
   });
 });

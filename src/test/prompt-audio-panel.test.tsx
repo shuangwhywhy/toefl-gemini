@@ -138,6 +138,100 @@ describe('PromptAudioPanel', () => {
     expect(screen.queryByText(/1x/i)).not.toBeInTheDocument();
   });
 
+  it('renders loading status correctly', () => {
+    render(<PromptAudioPanel {...defaultProps} audioStatus="loading" />);
+    // When loading, RefreshCw icon with animate-spin should be visible
+    expect(document.querySelector('.animate-spin')).toBeInTheDocument();
+  });
+
+  it('renders failed status correctly', () => {
+    render(<PromptAudioPanel {...defaultProps} audioStatus="failed" />);
+    expect(screen.getByText(/Audio failed/i)).toBeInTheDocument();
+  });
+
+  it('respects UI visibility flags', () => {
+    const { rerender } = render(
+      <PromptAudioPanel 
+        {...defaultProps} 
+        showSpeedControl={false} 
+        showListenCount={false} 
+        showTextToggle={false} 
+      />
+    );
+
+    expect(screen.queryByText(/1x/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Listen count:/i)).not.toBeInTheDocument();
+    // The toggle button should be absent
+    expect(document.querySelector('.lucide-eye')).not.toBeInTheDocument();
+    expect(document.querySelector('.lucide-eye-off')).not.toBeInTheDocument();
+
+    rerender(
+      <PromptAudioPanel 
+        {...defaultProps} 
+        showSpeedControl={true} 
+        showListenCount={true} 
+        showTextToggle={true} 
+      />
+    );
+
+    expect(screen.getByText(/1x/i)).toBeInTheDocument();
+    expect(screen.getByText(/Listen count:/i)).toBeInTheDocument();
+    // Eye icon is visible because showText is true by default
+    expect(document.querySelector('.lucide-eye-off')).toBeInTheDocument();
+  });
+
+  it('renders extra controls', () => {
+    render(
+      <PromptAudioPanel 
+        {...defaultProps} 
+        extraTopControls={<div data-testid="extra-top">Top Control</div>}
+        extraBottomControls={<div data-testid="extra-bottom">Bottom Control</div>}
+      />
+    );
+
+    expect(screen.getByTestId('extra-top')).toBeInTheDocument();
+    expect(screen.getByTestId('extra-bottom')).toBeInTheDocument();
+  });
+
+  it('applies highlighting when playing and enabled', () => {
+    usePromptAudioPlayerMock.mockReturnValueOnce({
+      ...usePromptAudioPlayerMock(),
+      isPlaying: true,
+      highlightStart: 0,
+      highlightLength: 4
+    } as any);
+
+    const { container } = render(
+      <PromptAudioPanel 
+        {...defaultProps} 
+        highlightText={true} 
+      />
+    );
+
+    // HighlightedPromptText renders spans, the highlighted one has bg-cyan-50
+    const highlighted = container.querySelector('.relative .bg-cyan-50');
+    expect(highlighted).toBeInTheDocument();
+    expect(highlighted).toHaveTextContent('This');
+  });
+
+  it('does not apply highlighting when disabled', () => {
+    usePromptAudioPlayerMock.mockReturnValueOnce({
+      ...usePromptAudioPlayerMock(),
+      isPlaying: true,
+      highlightStart: 0,
+      highlightLength: 4
+    } as any);
+
+    const { container } = render(
+      <PromptAudioPanel 
+        {...defaultProps} 
+        highlightText={false} 
+      />
+    );
+
+    expect(container.querySelector('.relative .bg-cyan-50')).not.toBeInTheDocument();
+  });
+
   it('calls stop when forceStop becomes true', () => {
     const stopSpy = vi.fn();
     usePromptAudioPlayerMock.mockReturnValue({
