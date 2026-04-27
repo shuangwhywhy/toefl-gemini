@@ -133,7 +133,7 @@ describe('LLM Coverage Boost', () => {
         candidates: [{ content: { parts: [{ text: '{"wrong": true}' }] } }]
       });
       const validator = (p: any) => { if (!p.right) throw new Error('Bad'); };
-      await expect(fetchGeminiText('prompt', 0, 100, null, null, validator, { scopeId: 'test' }))
+      await expect(fetchGeminiText<unknown>('prompt', 0, 100, null, null, validator, { scopeId: 'test' }))
         .rejects.toThrow(LLMFormatError);
     });
 
@@ -142,14 +142,14 @@ describe('LLM Coverage Boost', () => {
         .mockResolvedValueOnce({ candidates: [{ content: { parts: [{ text: '{ "broken": ' }] } }] })
         .mockResolvedValueOnce({ candidates: [{ content: { parts: [{ text: '{"fixed": true}' }] } }] });
       
-      const result = await fetchGeminiText('p', 0, 100, null, null, null, { scopeId: 'test' });
+      const result = await fetchGeminiText<unknown>('p', 0, 100, null, null, null, { scopeId: 'test' });
       expect(result).toEqual({ fixed: true });
       expect(requestMock).toHaveBeenCalledTimes(2);
     });
 
     it('fetchGeminiText respects disableJsonFixer', async () => {
       requestMock.mockResolvedValueOnce({ candidates: [{ content: { parts: [{ text: '{ "broken": ' }] } }] });
-      await expect(fetchGeminiText('p', 0, 100, null, null, null, { scopeId: 'test', disableJsonFixer: true }))
+      await expect(fetchGeminiText<unknown>('p', 0, 100, null, null, null, { scopeId: 'test', disableJsonFixer: true }))
         .rejects.toThrow(JSONExtractionError);
     });
   });

@@ -3,20 +3,16 @@ import {
   AlertCircle,
   ArrowLeft,
   ArrowRight,
-  ChevronRight,
-  Eye,
-  EyeOff,
-  Headphones,
-  History,
-  Mic,
-  Pause,
-  Play,
   RefreshCw,
   RotateCcw,
-  Settings,
   Sparkles,
   Square,
-  Trash2
+  Trash2,
+  Mic,
+  ChevronRight,
+  Settings,
+  Headphones,
+  History as HistoryIcon
 } from 'lucide-react';
 import { AITutorChat } from '../chat/AITutorChat';
 import {
@@ -37,6 +33,40 @@ import {
 import { PreloadPipeline } from '../../services/preload/orchestrator';
 import { useRequestScope } from '../../services/requestScope';
 import { DBUtils } from '../../services/storage/db';
+
+interface ShadowEvaluationWord {
+  word: string;
+  isCorrect: boolean;
+  status: 'correct' | 'wrong' | 'omitted';
+  spoken: string;
+  ipa: string;
+}
+
+interface ShadowEvaluationResponse {
+  errors: Array<{ index: number; word: string; status: string; spoken?: string; ipa?: string }>;
+  advice: string;
+  fluencyScore: number;
+  intonationScore: number;
+  suggestedFocus: string;
+}
+
+interface ShadowEvaluationResult {
+  words: ShadowEvaluationWord[];
+  accuracy: number;
+  fluency: number;
+  intonation: number;
+  id?: number;
+  text?: string;
+  listenCount?: number;
+  readCount?: number;
+  date?: string;
+}
+
+interface ShadowAttempt {
+  accuracy: number;
+  fluency: number;
+  intonation: number;
+}
 
 const EMPTY_TEXT = "Click 'Generate Next' to create your first practice sentence.";
 
@@ -60,13 +90,13 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
 
   const [isRecording, setIsRecording] = useState(false);
   const [transcribedText, setTranscribedText] = useState('');
-  const [evaluationResult, setEvaluationResult] = useState<any>(null);
+  const [evaluationResult, setEvaluationResult] = useState<ShadowEvaluationResult | null>(null);
   const [mediaError, setMediaError] = useState('');
   const [isEvaluating, setIsEvaluating] = useState(false);
 
   const [listenCount, setListenCount] = useState(0);
   const [readCount, setReadCount] = useState(0);
-  const [history, setHistory] = useState<any[]>([]);
+  const [history, setHistory] = useState<ShadowEvaluationResult[]>([]);
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(10);
   const [isDbLoaded, setIsDbLoaded] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -76,7 +106,7 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
     difficultyLevel,
     learningFocus
   });
-  const [currentAttempts, setCurrentAttempts] = useState<any[]>([]);
+  const [currentAttempts, setCurrentAttempts] = useState<ShadowAttempt[]>([]);
   const requestScope = useRequestScope('shadowing');
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -84,7 +114,7 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
   const audioCacheRef = useRef<Record<string, string>>({});
 
   const hasRecordedThisSentenceRef = useRef(false);
-  const [currentAudioPart, setCurrentAudioPart] = useState<any>(null);
+  const [currentAudioPart, setCurrentAudioPart] = useState<unknown>(null);
   const manualGenControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -285,8 +315,11 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
           text,
           listenCount,
           readCount,
-          accuracy: evaluationResult?.accuracy ?? null,
-          date: new Date().toLocaleString()
+          accuracy: evaluationResult?.accuracy ?? 0,
+          date: new Date().toLocaleString(),
+          words: evaluationResult?.words ?? [],
+          fluency: evaluationResult?.fluency ?? 0,
+          intonation: evaluationResult?.intonation ?? 0
         },
         ...previous
       ]);
@@ -381,7 +414,7 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
         }
       };
 
-      const data = await fetchGeminiText(prompt, 0.7, 400, schema, null, validator, {
+      const data = await fetchGeminiText<{ sentence: string }>(prompt, 0.7, 400, schema, null, validator, {
         scopeId: requestScope.scopeId,
         supersedeKey: 'shadow:generate',
         origin: 'ui',
@@ -397,7 +430,8 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
         difficultyLevel: safeDifficultyLevel,
         learningFocus: currentFocus
       };
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { name?: string };
       if (error?.name === 'AbortError') {
         return;
       }
@@ -458,9 +492,9 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
       };
       mediaRecorderRef.current.start();
       setIsRecording(true);
-    } catch (error) {
-      setMediaError('无法访问麦克风。请确保授予权限。');
-    }
+        } catch {
+          setMediaError('无法访问麦克风。请确保授予权限。');
+        }
   };
 
   const evaluatePronunciation = async (
@@ -474,10 +508,14 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
       setEvaluationResult({
         words: originalWords.map((word) => ({
           word,
-          status: 'omitted',
-          isCorrect: false
+          status: 'omitted' as const,
+          isCorrect: false,
+          spoken: '',
+          ipa: ''
         })),
-        accuracy: 0
+        accuracy: 0,
+        fluency: 0,
+        intonation: 0
       });
       setAiAdvice('未检测到声音。请大声朗读。');
       return;
@@ -486,8 +524,8 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
     setIsEvaluating(true);
     let nextLengthLevel = lengthLevel;
     let nextFocus = learningFocus;
-    let currentFluency = 0;
-    let currentIntonation = 0;
+    let currentFluency: number;
+    let currentIntonation: number;
     const evaluationSession = requestScope.beginSession();
 
     try {
@@ -557,18 +595,19 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
           'suggestedFocus'
         ]
       };
-      const validator = (data: any) => {
+      const validator = (data: { errors?: unknown[]; fluencyScore?: number }) => {
         if (!data || !Array.isArray(data.errors) || typeof data.fluencyScore !== 'number') {
           throw new Error('Invalid format from API');
         }
       };
 
-      let data = await fetchGeminiText(parts, 0.4, 1500, schema, null, validator, {
+      let data = await fetchGeminiText<Partial<ShadowEvaluationResponse>>(parts, 0.4, 1500, schema, null, validator, {
         scopeId: requestScope.scopeId,
         supersedeKey: 'shadow:evaluate',
         origin: 'ui',
         sceneKey: 'shadow:evaluate'
       });
+
       if (!requestScope.isSessionCurrent(evaluationSession)) {
         return;
       }
@@ -576,10 +615,10 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
       if (!data) {
         data = {};
       }
-      const errorMap: Record<number, any> = {};
-      (data.errors || []).forEach((error: any) => {
+      const errorMap: Record<number, { index: number; word: string; status: 'correct' | 'wrong' | 'omitted'; spoken?: string; ipa?: string }> = {};
+      (data.errors || []).forEach((error: { index: number; word: string; status: string; spoken?: string; ipa?: string }) => {
         if (error.index !== undefined) {
-          errorMap[error.index] = error;
+          errorMap[error.index] = { ...error, status: error.status as 'correct' | 'wrong' | 'omitted' };
         }
       });
 
@@ -608,7 +647,10 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
       currentFluency = data.fluencyScore || 0;
       currentIntonation = data.intonationScore || 0;
       setEvaluationResult({
-        words: resultWords,
+        words: resultWords.map((w) => ({
+          ...w,
+          status: w.status as 'correct' | 'wrong' | 'omitted'
+        })),
         accuracy: realAccuracy,
         fluency: currentFluency,
         intonation: currentIntonation
@@ -628,7 +670,7 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
       setCurrentAttempts(updatedAttempts);
 
       const triesCount = updatedAttempts.length;
-      const getComprehensiveScore = (attempt: any) =>
+      const getComprehensiveScore = (attempt: ShadowAttempt) =>
         attempt.accuracy * 0.5 + attempt.fluency * 0.3 + attempt.intonation * 0.2;
 
       const latestScore = getComprehensiveScore(updatedAttempts[triesCount - 1]);
@@ -651,7 +693,8 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
 
       nextLengthLevel = Math.max(1, Math.min(10, nextLength));
       nextFocus = data.suggestedFocus || learningFocus;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as Error;
       console.warn('AI 深度评测失败，已降级为本地评测模式。原因:', error?.message);
       const cleanWord = (word: string) => word.toLowerCase().replace(/[^\w\s']/g, '');
       const spokenWords = spokenText
@@ -698,7 +741,10 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
         ? Math.round((correctCount / originalWords.length) * 100)
         : 0;
       setEvaluationResult({
-        words: resultWords,
+        words: resultWords.map((w) => ({
+          ...w,
+          status: w.status as 'correct' | 'wrong' | 'omitted'
+        })),
         accuracy: localAccuracy,
         fluency: localAccuracy,
         intonation: localAccuracy
@@ -1033,7 +1079,7 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
                       </button>
                     </div>
                     <div className="flex flex-wrap gap-y-8 gap-x-2 justify-center">
-                      {evaluationResult.words.map((item: any, index: number) => (
+                      {evaluationResult?.words.map((item: ShadowEvaluationWord, index: number) => (
                         <div key={index} className="flex flex-col items-center min-w-[2.5rem] relative">
                           <span
                             className={`px-2 py-1 rounded-md font-medium shadow-sm border ${
@@ -1094,7 +1140,7 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
                         : 'text-slate-500 hover:bg-slate-200'
                     }`}
                   >
-                    <History className="w-4 h-4" />
+                    <HistoryIcon className="w-4 h-4" />
                     <span className="hidden sm:inline">
                       {isHistoryOpen ? '收起历史' : '展开历史'}
                     </span>
@@ -1107,7 +1153,7 @@ export function ShadowingModule({ onBack }: { onBack: () => void }) {
               <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[500px] animate-in slide-in-from-right-4 duration-300">
                 <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
                   <h2 className="text-sm font-bold text-slate-700 flex items-center">
-                    <History className="w-4 h-4 mr-2 text-indigo-500" /> 学习历史
+                    <HistoryIcon className="w-4 h-4 mr-2 text-indigo-500" /> 学习历史
                   </h2>
                   <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold shadow-sm">
                     {history.length} 条

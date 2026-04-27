@@ -7,9 +7,7 @@ import {
   Play,
   RefreshCw,
   RotateCcw,
-  Settings,
-  Square,
-  Volume2
+  Square
 } from 'lucide-react';
 import { HighlightedPromptText } from './HighlightedPromptText';
 import { usePromptAudioPlayer } from './usePromptAudioPlayer';

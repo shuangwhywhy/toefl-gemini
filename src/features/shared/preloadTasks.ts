@@ -83,7 +83,7 @@ export const queueShadowPreload = (
         }
       };
 
-      const data = await fetchGeminiText(prompt, 0.7, 400, schema, signal, validator, {
+      const data = await fetchGeminiText<{ sentence: string }>(prompt, 0.7, 400, schema, signal, validator, {
         scopeId,
         supersedeKey: 'shadow:sentence',
         origin: 'preload',
@@ -190,7 +190,11 @@ export const queueListeningPreload = () => {
         required: ['topic', 'transcript', 'truth']
       };
 
-      const data = await fetchGeminiText(prompt, 0.9, 2000, schema, signal, null, {
+      const data = await fetchGeminiText<{
+        topic: string;
+        transcript: string;
+        truth: Record<string, string>;
+      }>(prompt, 0.9, 2000, schema, signal, null, {
         scopeId,
         supersedeKey: 'listening:conversation',
         origin: 'preload',
@@ -249,7 +253,10 @@ export const queueDictationPreload = () => {
         required: ['topic', 'text']
       };
 
-      const data = await fetchGeminiText(prompt, 0.9, 2000, schema, signal, null, {
+      const data = await fetchGeminiText<{
+        topic: string;
+        text: string;
+      }>(prompt, 0.9, 2000, schema, signal, null, {
         scopeId,
         supersedeKey: 'dictation:text',
         origin: 'preload',

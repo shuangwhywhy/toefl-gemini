@@ -44,11 +44,11 @@ const bindPendingAbort = <T>(
   return promise.finally(() => signal.removeEventListener('abort', abortHandler));
 };
 
-const parseGenerateContentText = (response: any) =>
-  response?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+const parseGenerateContentText = (response: unknown) =>
+  (response as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> })?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
 
-const extractInlineData = (response: any) =>
-  response?.candidates?.[0]?.content?.parts?.[0]?.inlineData ?? null;
+const extractInlineData = (response: unknown) =>
+  (response as { candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data: string; mimeType: string } }> } }> })?.candidates?.[0]?.content?.parts?.[0]?.inlineData ?? null;
 
 const FAILURE_RESPONSE_PATTERN =
   /\b(error|failed|failure|quota|rate limit|too many|unavailable|permission|unauthorized|forbidden|not found|policy|safety|blocked|refused|denied|invalid api|resource exhausted)\b/i;
@@ -234,15 +234,15 @@ const estimateTokensFromParts = (value: unknown): number => {
   return Math.max(1, total);
 };
 
-export const fetchGeminiText = async (
+export const fetchGeminiText = async <T>(
   promptOrParts: string | Array<Record<string, unknown>>,
   temperature = 0.9,
   maxOutputTokens = 1500,
   schema: Record<string, unknown> | null = null,
   signal: AbortSignal | null = null,
-  validator: ((payload: any) => void) | null = null,
+  validator: ((payload: unknown) => void) | null = null,
   requestOptions?: SharedRequestOptions
-): Promise<any> => {
+): Promise<T> => {
   const { scopeId, supersedeKey, isBackground } = ensureScope(requestOptions);
   const primaryService = requestOptions?.service ?? 'text';
   const disableJsonFixer = requestOptions?.disableJsonFixer ?? false;
@@ -319,9 +319,9 @@ export const fetchGeminiText = async (
   };
 
   const response = await runAttempt(false);
-  let rawText = parseGenerateContentText(response);
+  const rawText = parseGenerateContentText(response);
 
-  let parsedData: any;
+  let parsedData: unknown;
   try {
     parsedData = extractJSON(rawText);
   } catch (parseError) {
@@ -388,7 +388,7 @@ export const fetchGeminiText = async (
     }
   }
 
-  return parsedData;
+  return parsedData as T;
 };
 
 export const fetchNeuralTTS = async (
@@ -649,7 +649,7 @@ export const requestTranscription = async ({
     schema,
     null,
     (payload) => {
-      if (!payload || typeof payload.transcript !== 'string') {
+      if (!payload || typeof (payload as { transcript?: unknown }).transcript !== 'string') {
         throw new Error('Invalid transcription response.');
       }
     },
@@ -671,5 +671,5 @@ export const requestTranscription = async ({
     }
   );
 
-  return result.transcript.trim();
+  return (result as { transcript: string }).transcript.trim();
 };

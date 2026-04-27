@@ -4,11 +4,35 @@ type PreloadTask = {
   fn: (signal: AbortSignal) => Promise<void>;
 };
 
+
 type PreloadCache = {
-  shadow: any;
-  interview: any;
-  listening: any;
-  dictation: any;
+  shadow: {
+    text: string;
+    audioUrl: string;
+    voice: string;
+    lengthLevel: number;
+    difficultyLevel: number;
+    learningFocus: string;
+  } | null;
+  interview: {
+    topic: string;
+    questions: Array<{
+      role: 'personal_anchor' | 'personal_choice' | 'broad_opinion' | 'future_or_tradeoff';
+      text: string;
+      audioUrl: string | null;
+    }>;
+  } | null;
+  listening: {
+    topic: string;
+    transcript: string;
+    audioUrl: string;
+  } | null;
+  dictation: {
+    topic: string;
+    text: string;
+    audioUrl: string;
+    tokens: Array<Record<string, unknown>>;
+  } | null;
 };
 
 export const PreloadPipeline = {

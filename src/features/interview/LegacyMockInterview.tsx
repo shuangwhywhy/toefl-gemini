@@ -35,24 +35,64 @@ import { PreloadPipeline } from '../../services/preload/orchestrator';
 import { useRequestScope } from '../../services/requestScope';
 import { DBUtils } from '../../services/storage/db';
 
+interface InterviewAnswer {
+  qIndex: number;
+  text: string;
+  timeTaken: number;
+  audioUrl: string;
+  audioBlob: Blob;
+}
+
+interface InterviewHistoryItem {
+  id: number;
+  type: string;
+  date: string;
+  topic: string;
+  totalTime: number;
+  score: number;
+  data: unknown;
+}
+
+interface LegacyInterviewEvaluation {
+  score: number;
+  overallFeedback: string;
+  timeAnalysis: string;
+  speedAnalysis: string;
+  wordsPer45s: number;
+  targetWords: number;
+  detailedAnalysis: Array<{
+    question: string;
+    feedback: string;
+    tailoredResponse: Array<{
+      strategy: string;
+      text: string;
+    }>;
+  }>;
+}
+
+interface InterviewAudioPart {
+  mimeType: string;
+  data: string;
+}
+
 export function LegacyMockInterview({ onBack }: { onBack: () => void }) {
   const [status, setStatus] = useState<string>('setup');
   const [interviewData, setInterviewData] = useState<InterviewSessionData | null>(null);
   const [currentQIndex, setCurrentQIndex] = useState(0);
   const [showTextState, setShowTextState] = useState([false, false, false, false]);
-  const [userAnswers, setUserAnswers] = useState<any[]>([]);
+  const [userAnswers, setUserAnswers] = useState<InterviewAnswer[]>([]);
 
   const [isRecording, setIsRecording] = useState(false);
   const [timer, setTimer] = useState(0);
   const [currentTranscript, setCurrentTranscript] = useState('');
 
-  const [finalEvaluation, setFinalEvaluation] = useState<any>(null);
-  const [interviewHistory, setInterviewHistory] = useState<any[]>([]);
+  const [finalEvaluation, setFinalEvaluation] = useState<LegacyInterviewEvaluation | null>(null);
+  const [interviewHistory, setInterviewHistory] = useState<InterviewHistoryItem[]>([]);
   const [isDbLoaded, setIsDbLoaded] = useState(false);
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(10);
   const [apiError, setApiError] = useState('');
 
-  const [audioContextParts, setAudioContextParts] = useState<any[]>([]);
+  const [audioContextParts, setAudioContextParts] = useState<InterviewAudioPart[]>([]);
   const requestScope = useRequestScope('interview');
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -263,7 +303,7 @@ export function LegacyMockInterview({ onBack }: { onBack: () => void }) {
       audioRef.current.src = url;
       try {
         await audioRef.current.play();
-      } catch (error) {
+      } catch {
         console.warn('Audio element blocked, fallback to SpeechSynthesis');
         playSimpleSpeech(activeInterview.questions[index].text, handleInterviewerAudioEnded);
       }
@@ -313,8 +353,8 @@ export function LegacyMockInterview({ onBack }: { onBack: () => void }) {
           if (transcribed) {
             transcript = transcribed;
           }
-        } catch (error) {
-          console.warn('Interview transcription failed:', error);
+        } catch (err) {
+          console.warn('Interview transcription failed:', err);
         }
 
         if (!requestScope.isSessionCurrent(answerSession)) {
@@ -353,7 +393,7 @@ export function LegacyMockInterview({ onBack }: { onBack: () => void }) {
           return next;
         });
       }, 1000);
-    } catch (error) {
+    } catch {
       setApiError('无法访问麦克风。请确保授予权限。');
     }
   };
@@ -401,7 +441,7 @@ export function LegacyMockInterview({ onBack }: { onBack: () => void }) {
 
     let qaLog = '';
     const parts: Array<Record<string, unknown>> = [];
-    const audioPartsForChat: Array<Record<string, string>> = [];
+    const audioPartsForChat: InterviewAudioPart[] = [];
 
     for (let index = 0; index < 4; index += 1) {
       qaLog += `Q${index + 1}: ${interviewData.questions[index].text}\nSTT Transcript A${
@@ -471,7 +511,7 @@ export function LegacyMockInterview({ onBack }: { onBack: () => void }) {
     };
 
     try {
-      const data = await fetchGeminiText(parts, 0.4, 4000, schema, null, null, {
+      const data = await fetchGeminiText<LegacyInterviewEvaluation>(parts, 0.4, 4000, schema, null, null, {
         scopeId: requestScope.scopeId,
         supersedeKey: 'interview:evaluate',
         origin: 'ui',
@@ -490,7 +530,8 @@ export function LegacyMockInterview({ onBack }: { onBack: () => void }) {
         topic: interviewData.topic,
         score: finalData.score,
         totalTime,
-        date: new Date().toLocaleString()
+        date: new Date().toLocaleString(),
+        data: finalData
       };
       const updatedHistory = [newHistoryItem, ...interviewHistory];
       void DBUtils.set('interview_history', updatedHistory);
@@ -569,7 +610,7 @@ export function LegacyMockInterview({ onBack }: { onBack: () => void }) {
           className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto p-1"
           onScroll={handleHistoryScroll}
         >
-          {interviewHistory.slice(0, visibleHistoryCount).map((item) => (
+          {interviewHistory.slice(0, visibleHistoryCount).map((item: InterviewHistoryItem) => (
             <div
               key={item.id}
               className="relative p-4 border border-slate-100 bg-slate-50 rounded-xl hover:border-blue-200 transition-colors text-left group"
@@ -709,7 +750,7 @@ export function LegacyMockInterview({ onBack }: { onBack: () => void }) {
 
               {status === 'interviewing' && (
                 <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 bg-slate-50">
-                  {interviewData.questions.map((question: any, index: number) => {
+                  {interviewData.questions.map((question: { text: string }, index: number) => {
                     if (index > currentQIndex) {
                       return null;
                     }
@@ -906,7 +947,7 @@ export function LegacyMockInterview({ onBack }: { onBack: () => void }) {
                         逐题深度解析
                       </h3>
                       <div className="space-y-8">
-                        {finalEvaluation.detailedAnalysis.map((item: any, index: number) => (
+                        {finalEvaluation && finalEvaluation.detailedAnalysis.map((item, index: number) => (
                           <div
                             key={index}
                             className="bg-slate-50 border border-slate-200 p-5 rounded-xl"
@@ -930,7 +971,7 @@ export function LegacyMockInterview({ onBack }: { onBack: () => void }) {
                                   </span>
                                 </div>
                                 <div className="space-y-3">
-                                  {item.tailoredResponse.map((block: any, blockIndex: number) => (
+                                  {item.tailoredResponse.map((block: { strategy: string; text: string }, blockIndex: number) => (
                                     <div
                                       key={blockIndex}
                                       className="flex flex-col sm:flex-row gap-3 items-start group"

@@ -24,6 +24,37 @@ import {
   fetchNeuralTTS,
   processDictationText
 } from '../../services/llm/helpers';
+
+interface DictationToken {
+  type: 'shown' | 'gap';
+  word: string;
+  gapIdx?: number;
+}
+
+interface DictationSessionData {
+  topic: string;
+  text: string;
+  tokens: DictationToken[];
+  audioUrl: string;
+}
+
+interface ListeningSessionData {
+  topic: string;
+  transcript: string;
+  truth: Record<string, string>;
+  audioUrl: string;
+}
+
+interface ListeningEvaluationData {
+  totalScore: number;
+  overallFeedback: string;
+  fieldEvaluations: Array<{
+    fieldId: string;
+    fieldName: string;
+    feedback: string;
+    score: number;
+  }>;
+}
 import { classifyLLMFailure } from '../../services/llm/errors';
 import { runBoundedGeneration } from '../../services/llm/retry';
 import { PreloadPipeline } from '../../services/preload/orchestrator';
@@ -31,10 +62,10 @@ import { useRequestScope } from '../../services/requestScope';
 
 export function ListeningDictationModule({ onBack }: { onBack: () => void }) {
   const [status, setStatus] = useState<string>('generating');
-  const [data, setData] = useState<any>(null);
+  const [apiError, setApiError] = useState('');
+  const [data, setData] = useState<DictationSessionData | null>(null);
   const [userInputs, setUserInputs] = useState<string[]>([]);
   const [isEvaluated, setIsEvaluated] = useState(false);
-  const [apiError, setApiError] = useState('');
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -43,9 +74,11 @@ export function ListeningDictationModule({ onBack }: { onBack: () => void }) {
   const initialLoadAttemptedRef = useRef(false);
   const requestScope = useRequestScope('dictation');
 
-  const initSession = (dictationData: any) => {
-    setData(dictationData);
-    const gaps = dictationData.tokens.filter((token: any) => token.type === 'gap');
+  const initSession = (dictationData: unknown) => {
+    setData(dictationData as DictationSessionData);
+    const gaps = (dictationData as { tokens: Array<{ type: string }> }).tokens.filter(
+      (token) => token.type === 'gap'
+    );
     setUserInputs(new Array(gaps.length).fill(''));
     setIsEvaluated(false);
     setStatus('practicing');
@@ -96,7 +129,7 @@ export function ListeningDictationModule({ onBack }: { onBack: () => void }) {
             required: ['topic', 'text']
           };
 
-          const result = await fetchGeminiText(prompt, 0.9, 2000, schema, null, null, {
+          const result = await fetchGeminiText<{ topic: string; text: string }>(prompt, 0.9, 2000, schema, null, null, {
             scopeId: requestScope.scopeId,
             supersedeKey: 'dictation:generate',
             origin: 'ui',
@@ -189,7 +222,7 @@ export function ListeningDictationModule({ onBack }: { onBack: () => void }) {
   };
 
   let gapCounter = 0;
-  const tokensWithGapIdx = data?.tokens.map((token: any) => {
+  const tokensWithGapIdx = (data as DictationSessionData)?.tokens.map((token: DictationToken) => {
     if (token.type === 'gap') {
       const nextToken = { ...token, gapIdx: gapCounter };
       gapCounter += 1;
@@ -203,10 +236,10 @@ export function ListeningDictationModule({ onBack }: { onBack: () => void }) {
       return 0;
     }
 
-    const gaps = data.tokens.filter((token: any) => token.type === 'gap');
+    const gaps = (data as DictationSessionData).tokens.filter((token) => token.type === 'gap');
     let correct = 0;
-    gaps.forEach((gap: any, index: number) => {
-      if (userInputs[index].trim().toLowerCase() === gap.word.toLowerCase()) {
+    gaps.forEach((_gap, index: number) => {
+      if (userInputs[index].trim().toLowerCase() === _gap.word.toLowerCase()) {
         correct += 1;
       }
     });
@@ -269,7 +302,7 @@ export function ListeningDictationModule({ onBack }: { onBack: () => void }) {
           <div className="bg-white rounded-2xl shadow-sm p-16 text-center">
             <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto mb-4" />
             <p className="text-slate-700 font-medium mb-6">
-              学术短文暂时生成失败，请稍后重试。
+              {apiError || '学术短文暂时生成失败，请稍后重试。'}
             </p>
             <button
               onClick={() => void generateDictation()}
@@ -314,7 +347,7 @@ export function ListeningDictationModule({ onBack }: { onBack: () => void }) {
 
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 min-h-[400px]">
                 <div className="leading-[3rem] text-justify">
-                  {tokensWithGapIdx.map((token: any, index: number) => {
+                  {tokensWithGapIdx.map((token, index: number) => {
                     const isPunctuation = /^[^a-zA-Z0-9]+$/.test(token.word);
                     const spacing = isPunctuation ? '' : ' ml-2';
 
@@ -415,9 +448,9 @@ export function ListeningDictationModule({ onBack }: { onBack: () => void }) {
                   initialAdvice={
                     isEvaluated
                       ? `这篇听力中有一些容易拼错的单词，比如：${data.tokens
-                          .filter((token: any) => token.word.length > 7 && token.type === 'gap')
+                          .filter((token: { word: string; type: string }) => token.word.length > 7 && token.type === 'gap')
                           .slice(0, 2)
-                          .map((token: any) => token.word)
+                          .map((token: { word: string }) => token.word)
                           .join(', ')}。你对哪个单词的发音或拼写规则有疑问？`
                       : '正在等待您开始听写。您可以随时向我提问关于听力细节的问题。'
                   }
@@ -434,7 +467,7 @@ export function ListeningDictationModule({ onBack }: { onBack: () => void }) {
 
 export function ListeningPracticeModule({ onBack }: { onBack: () => void }) {
   const [status, setStatus] = useState<string>('generating');
-  const [conversationData, setConversationData] = useState<any>(null);
+  const [conversationData, setConversationData] = useState<ListeningSessionData | null>(null);
   const [notes, setNotes] = useState({
     who: '',
     problem: '',
@@ -442,7 +475,7 @@ export function ListeningPracticeModule({ onBack }: { onBack: () => void }) {
     solution: '',
     nextStep: ''
   });
-  const [evaluation, setEvaluation] = useState<any>(null);
+  const [evaluation, setEvaluation] = useState<ListeningEvaluationData | null>(null);
   const [apiError, setApiError] = useState('');
 
   const [isPlaying, setIsPlaying] = useState(false);
@@ -451,8 +484,8 @@ export function ListeningPracticeModule({ onBack }: { onBack: () => void }) {
   const initialLoadAttemptedRef = useRef(false);
   const requestScope = useRequestScope('listening-practice');
 
-  const initConversation = (nextConversationData: any) => {
-    setConversationData(nextConversationData);
+  const initConversation = (nextConversationData: unknown) => {
+    setConversationData(nextConversationData as ListeningSessionData);
     setNotes({ who: '', problem: '', reason: '', solution: '', nextStep: '' });
     setEvaluation(null);
     setStatus('ready');
@@ -520,7 +553,7 @@ export function ListeningPracticeModule({ onBack }: { onBack: () => void }) {
             required: ['topic', 'transcript', 'truth']
           };
 
-          const data = await fetchGeminiText(prompt, 0.9, 2000, schema, null, null, {
+          const data = await fetchGeminiText<{ topic: string; transcript: string; truth: Record<string, string> }>(prompt, 0.9, 2000, schema, null, null, {
             scopeId: requestScope.scopeId,
             supersedeKey: 'listening:generate',
             origin: 'ui',
@@ -603,17 +636,18 @@ export function ListeningPracticeModule({ onBack }: { onBack: () => void }) {
         required: ['totalScore', 'overallFeedback', 'fieldEvaluations']
       };
 
-      const validator = (data: any) => {
+      const validator = (data: unknown) => {
+        const d = data as Record<string, unknown>;
         if (
-          !data ||
-          typeof data.totalScore !== 'number' ||
-          !Array.isArray(data.fieldEvaluations)
+          !d ||
+          typeof d.totalScore !== 'number' ||
+          !Array.isArray(d.fieldEvaluations)
         ) {
           throw new Error('Invalid evaluation format from AI');
         }
       };
 
-      const evaluationData = await fetchGeminiText(prompt, 0.4, 2000, schema, null, validator, {
+      const evaluationData = await fetchGeminiText<ListeningEvaluationData>(prompt, 0.4, 2000, schema, null, validator, {
         scopeId: requestScope.scopeId,
         supersedeKey: 'listening:evaluate',
         origin: 'ui',
@@ -822,7 +856,7 @@ export function ListeningPracticeModule({ onBack }: { onBack: () => void }) {
                     }
                   ].map((field) => {
                     const evaluationData = evaluation?.fieldEvaluations?.find(
-                      (item: any) => item.fieldId === field.id
+                      (item: { fieldId: string }) => item.fieldId === field.id
                     );
                     return (
                       <div

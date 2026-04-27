@@ -12,7 +12,7 @@ export async function callStructuredGemini<T>(options: {
   signal?: AbortSignal | null;
   requestOptions?: Record<string, unknown>;
 }): Promise<T> {
-  const payload = await fetchGeminiText(
+  const payload = await fetchGeminiText<unknown>(
     options.promptOrParts,
     options.temperature ?? 0.4,
     options.maxOutputTokens ?? 2000,

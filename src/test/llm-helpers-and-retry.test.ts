@@ -118,7 +118,7 @@ describe('LLM helper recovery and bounded retry', () => {
       responseWithText('```json\n{"topic":"A","text":"B"}\n```')
     );
 
-    const result = await fetchGeminiText(
+    const result = await fetchGeminiText<unknown>(
       'prompt',
       0.9,
       200,
@@ -135,7 +135,7 @@ describe('LLM helper recovery and bounded retry', () => {
   it('sends text requests through the text bucket without a fixed model', async () => {
     requestMock.mockResolvedValueOnce(responseWithText('{"ok":true}'));
 
-    await fetchGeminiText(
+    await fetchGeminiText<unknown>(
       'prompt',
       0.9,
       200,
@@ -195,7 +195,7 @@ describe('LLM helper recovery and bounded retry', () => {
       .mockResolvedValueOnce(responseWithText('topic: "A"\ntext: "B"'))
       .mockResolvedValueOnce(responseWithText('{"topic":"A","text":"B"}'));
 
-    const result = await fetchGeminiText(
+    const result = await fetchGeminiText<unknown>(
       'prompt',
       0.9,
       200,
@@ -213,7 +213,7 @@ describe('LLM helper recovery and bounded retry', () => {
     requestMock.mockResolvedValueOnce(responseWithText('Error: quota exceeded'));
 
     await expect(
-      fetchGeminiText(
+      fetchGeminiText<unknown>(
         'prompt',
         0.9,
         200,

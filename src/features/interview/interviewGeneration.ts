@@ -40,8 +40,8 @@ interface GenerateInterviewSessionOptions {
   supersedeKey: string;
   firstTtsSupersedeKey: string;
   isBackground?: boolean;
-  mode: 'manual' | 'preload';
   seed?: string;
+  mode?: string;
 }
 
 export const INTERVIEW_GENERATION_SCHEMA = {
@@ -134,11 +134,10 @@ export const generateInterviewSession = async ({
   supersedeKey,
   firstTtsSupersedeKey,
   isBackground = false,
-  mode,
   seed = createInterviewRandomSeed()
 }: GenerateInterviewSessionOptions): Promise<InterviewSessionData> => {
   const prompt = buildInterviewPrompt(seed);
-  const payload = await fetchGeminiText(
+  const payload = await fetchGeminiText<InterviewPromptPayload>(
     prompt,
     0.9,
     900,
@@ -159,7 +158,7 @@ export const generateInterviewSession = async ({
     }
   );
 
-  const sessionData = mapInterviewPayloadToSession(payload as Record<string, unknown>);
+  const sessionData = mapInterviewPayloadToSession(payload as unknown as Record<string, unknown>);
   sessionData.questions[0].audioUrl = await fetchNeuralTTS(
     voice,
     sessionData.questions[0].text,

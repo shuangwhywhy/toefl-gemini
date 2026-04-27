@@ -46,7 +46,7 @@ export function readTimeAnalysis(details: Record<string, unknown>): TimeAnalysis
     return {
       durationSec: typeof raw.durationSec === 'number' ? raw.durationSec : 0,
       cutoffSec: typeof raw.cutoffSec === 'number' ? raw.cutoffSec : 45,
-      category: typeof raw.category === 'string' ? raw.category as any : 'unknown',
+      category: typeof raw.category === 'string' ? raw.category as 'too_short' | 'good' | 'slightly_long' | 'overtime' | 'unknown' : 'unknown',
       beforeCutoffSummary: typeof raw.beforeCutoffSummary === 'string' ? raw.beforeCutoffSummary : '',
       afterCutoffSummary: typeof raw.afterCutoffSummary === 'string' ? raw.afterCutoffSummary : '',
       pacingAdvice: typeof raw.pacingAdvice === 'string' ? raw.pacingAdvice : '',

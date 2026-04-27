@@ -115,25 +115,33 @@ export default function ToeflTrainerApp() {
       setTimeout(() => {
         try {
           queueShadowPreload(3, 'general daily English', 5, DEFAULT_SHADOW_VOICE);
-        } catch (error) {}
+        } catch {
+          // Ignore preload errors
+        }
       }, 0);
 
       setTimeout(() => {
         try {
           queueInterviewPreload('Puck');
-        } catch (error) {}
+        } catch {
+          // Ignore preload errors
+        }
       }, 1000);
 
       setTimeout(() => {
         try {
           queueListeningPreload();
-        } catch (error) {}
+        } catch {
+          // Ignore preload errors
+        }
       }, 2000);
 
       setTimeout(() => {
         try {
           queueDictationPreload();
-        } catch (error) {}
+        } catch {
+          // Ignore preload errors
+        }
       }, 3000);
     }, 800);
 

@@ -691,7 +691,7 @@ class LLMClient {
     while (true) {
       const selection =
         nextSelection ?? (await this.waitForCandidate(entry, attemptedModels, lastError));
-      nextSelection = null;
+      
 
       try {
         return await this.executeWithCandidate(bucket, entry, selection);

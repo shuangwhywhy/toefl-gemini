@@ -151,7 +151,7 @@ export function DeviceSetupModule({ onComplete }: { onComplete: () => void }) {
       };
 
       updateVolume();
-    } catch (error) {
+    } catch {
       setMicStatus('error');
     }
   };
@@ -390,8 +390,7 @@ export function MainMenuModule({
 
 export function SpeakingMenuModule({
   onNavigate,
-  onBack,
-  preloadStatus
+  onBack
 }: {
   onNavigate: (mode: string) => void;
   onBack: () => void;
@@ -461,8 +460,7 @@ export function SpeakingMenuModule({
 
 export function ListeningMenuModule({
   onNavigate,
-  onBack,
-  preloadStatus
+  onBack
 }: {
   onNavigate: (mode: string) => void;
   onBack: () => void;

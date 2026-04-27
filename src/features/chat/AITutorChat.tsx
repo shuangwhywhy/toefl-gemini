@@ -180,7 +180,7 @@ export function AITutorChat({
           if (transcript) {
             setInputText((previous) => `${previous}${transcript}`);
           }
-        } catch (error) {
+        } catch {
           setMessages((previous) => [
             ...previous,
             { id: Date.now(), role: 'model', text: '语音转文字失败，请稍后再试。' }
@@ -190,7 +190,7 @@ export function AITutorChat({
 
       recorder.start();
       setIsListening(true);
-    } catch (error) {
+    } catch {
       setMessages((previous) => [
         ...previous,
         { id: Date.now(), role: 'model', text: '抱歉，无法访问麦克风进行语音输入。' }
@@ -296,7 +296,7 @@ export function AITutorChat({
       if (rememberHistory) {
         void DBUtils.set(`chat_${chatId}`, finalMessages);
       }
-    } catch (error) {
+    } catch {
       setMessages((previous) => [
         ...previous,
         { id: Date.now(), role: 'model', text: '网络异常，无法获取回复。' }
