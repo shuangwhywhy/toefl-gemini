@@ -1,10 +1,9 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type {
+import {
   InterviewTrainingQuestion,
   InterviewTrainingStage,
-  InterviewTrainingSession,
   TrainingAttempt,
   StageEvaluation,
   StageState
@@ -329,13 +328,14 @@ describe('interview training voice-first UI', () => {
     const onSelect = vi.fn();
     const session = {
       id: 's1',
-      version: 1,
       topic: 'Topic',
       activeQuestionId: 'q1',
-      activeStage: 'thinking_structure',
-      status: 'active',
+      activeStage: 'thinking_structure' as const,
+      status: 'active' as const,
       createdAt: now,
       updatedAt: now,
+      voice: 'v1',
+      version: 1,
       questions: [
         createQuestion({ id: 'q1', index: 0, question: 'Prompt 1' }),
         createQuestion({ id: 'q2', index: 1, question: 'Prompt 2', stages: { 
@@ -343,7 +343,7 @@ describe('interview training voice-first UI', () => {
           thinking_structure: { status: 'reviewed', attemptIds: [], updatedAt: now } 
         } }),
       ]
-    } as unknown as InterviewTrainingSession;
+    };
 
     const { container } = render(<QuestionSwitcher session={session} onSelect={onSelect} />);
 

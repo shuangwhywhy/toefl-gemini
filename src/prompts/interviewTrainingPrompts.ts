@@ -121,6 +121,8 @@ ${currentAnswerInstruction}
 Additional evaluation rules:
 - For audio submissions, treat the AUDIO part as the source of truth for the current answer.
 - Do not use a generated display transcript as the current-answer evaluation input.
+- You MUST provide at least 5 segments in 'displayTranscriptSegments' if audio is provided, ensuring they cover the entire duration.
+- The 'afterCutoff' flag MUST be true for any segment where 'endSec' is strictly greater than 45.0. This is a hard requirement for UI cutoff logic.
 - If cross-question context is provided in a separate text part, use it only to judge whether this answer is logically consistent with other answers in the same interview set. Only populate crossQuestionConsistency if there are previous answers to compare to. Do not evaluate consistency against the current answer itself.
 - Other questions' raw audio is intentionally not provided.
 - If timing policy is enabled, analyze content before and after 45 seconds. In real scoring, content after 45 seconds may be too late, but training feedback should still explain its value. If timing policy is NOT enabled for the current stage, keep timingAdvice very brief or general.

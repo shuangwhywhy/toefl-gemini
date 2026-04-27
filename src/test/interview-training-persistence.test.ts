@@ -1,7 +1,8 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, beforeEach } from 'vitest';
 import * as Persistence from '../services/interviewTrainingPersistence';
-import type { InterviewTrainingSession, TrainingAttempt, StageEvaluation } from '../features/interview/types';
+import { TrainingAttempt } from '../features/interview/types';
+import { createMockSession, createMockQuestion, createMockEvaluation, createMockAttempt, createMockRecommendation } from './fixtures/interviewFixtures';
 const { 
   interviewTrainingDB, 
   clearInterviewTrainingData,
@@ -18,12 +19,12 @@ describe('InterviewTrainingPersistence', () => {
   });
 
   it('saves and loads an active session', async () => {
-    const mockSession = {
+    const mockSession = createMockSession({
       id: 'session-1',
-      status: 'active' as const,
+      status: 'active',
       updatedAt: new Date().toISOString(),
       questions: []
-    } as unknown as InterviewTrainingSession;
+    });
 
     await saveInterviewTrainingSession(mockSession);
     const loaded = await loadActiveInterviewTrainingSession();
@@ -31,8 +32,8 @@ describe('InterviewTrainingPersistence', () => {
   });
 
   it('archives existing active sessions when creating a new one', async () => {
-    const session1 = { id: 's1', status: 'active' as const, updatedAt: '2026-01-01T00:00:00Z' } as unknown as InterviewTrainingSession;
-    const session2 = { id: 's2', status: 'active' as const, updatedAt: '2026-01-01T00:00:01Z' } as unknown as InterviewTrainingSession;
+    const session1 = createMockSession({ id: 's1', status: 'active', updatedAt: '2026-01-01T00:00:00Z' });
+    const session2 = createMockSession({ id: 's2', status: 'active', updatedAt: '2026-01-01T00:00:01Z' });
 
     await interviewTrainingDB.sessions.put(session1);
     await createInterviewTrainingSession(session2);
@@ -45,7 +46,7 @@ describe('InterviewTrainingPersistence', () => {
   });
 
   it('saves training attempts and audio blobs', async () => {
-    const attempt = {
+    const attempt = createMockAttempt({
       id: 'a1',
       sessionId: 's1',
       questionId: 'q1',
@@ -54,7 +55,7 @@ describe('InterviewTrainingPersistence', () => {
       inputType: 'audio',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
-    } as unknown as TrainingAttempt;
+    });
     const blob = new Blob(['audio data'], { type: 'audio/webm' });
 
     const saved = await saveTrainingAttempt(attempt, blob);
@@ -66,20 +67,20 @@ describe('InterviewTrainingPersistence', () => {
   });
 
   it('gets attempts for a specific stage', async () => {
-    const a1 = { id: 'a1', sessionId: 's1', questionId: 'q1', stage: 'st1', createdAt: '2026-01-01T00:00:00Z' } as unknown as TrainingAttempt;
-    const a2 = { id: 'a2', sessionId: 's1', questionId: 'q1', stage: 'st1', createdAt: '2026-01-01T00:00:01Z' } as unknown as TrainingAttempt;
-    const a3 = { id: 'a3', sessionId: 's1', questionId: 'q2', stage: 'st1', createdAt: '2026-01-01T00:00:02Z' } as unknown as TrainingAttempt;
+    const a1 = createMockAttempt({ id: 'a1', sessionId: 's1', questionId: 'q1', stage: 'thinking_structure', createdAt: '2026-01-01T00:00:00Z' });
+    const a2 = createMockAttempt({ id: 'a2', sessionId: 's1', questionId: 'q1', stage: 'thinking_structure', createdAt: '2026-01-01T00:00:01Z' });
+    const a3 = createMockAttempt({ id: 'a3', sessionId: 's1', questionId: 'q2', stage: 'thinking_structure', createdAt: '2026-01-01T00:00:02Z' });
 
     await interviewTrainingDB.attempts.bulkPut([a1, a2, a3]);
 
-    const results = await getAttemptsForStage('s1', 'q1', 'st1');
+    const results = await getAttemptsForStage('s1', 'q1', 'thinking_structure');
     expect(results).toHaveLength(2);
     expect(results[0].id).toBe('a2'); // Sorted by createdAt desc
   });
 
   it('gets all attempts for a session', async () => {
-    const a1 = { id: 'a1', sessionId: 's1', createdAt: '2026-01-01T00:00:00Z' } as unknown as TrainingAttempt;
-    const a2 = { id: 'a2', sessionId: 's1', createdAt: '2026-01-01T00:00:01Z' } as unknown as TrainingAttempt;
+    const a1 = createMockAttempt({ id: 'a1', sessionId: 's1', createdAt: '2026-01-01T00:00:00Z' });
+    const a2 = createMockAttempt({ id: 'a2', sessionId: 's1', createdAt: '2026-01-01T00:00:01Z' });
     await interviewTrainingDB.attempts.bulkPut([a1, a2]);
 
     const results = await Persistence.getAttemptsForSession('s1');
@@ -88,8 +89,8 @@ describe('InterviewTrainingPersistence', () => {
   });
 
   it('gets latest evaluation and evaluations for session', async () => {
-    const e1 = { id: 'e1', attemptId: 'a1', sessionId: 's1', createdAt: '2026-01-01T00:00:00Z' } as unknown as StageEvaluation;
-    const e2 = { id: 'e2', attemptId: 'a1', sessionId: 's1', createdAt: '2026-01-01T00:00:01Z' } as unknown as StageEvaluation;
+    const e1 = createMockEvaluation({ id: 'e1', attemptId: 'a1', sessionId: 's1', createdAt: '2026-01-01T00:00:00Z' });
+    const e2 = createMockEvaluation({ id: 'e2', attemptId: 'a1', sessionId: 's1', createdAt: '2026-01-01T00:00:01Z' });
     await interviewTrainingDB.evaluations.bulkPut([e1, e2]);
 
     const latest = await Persistence.getLatestEvaluation('a1');
@@ -100,8 +101,8 @@ describe('InterviewTrainingPersistence', () => {
   });
 
   it('archives duplicate active sessions', async () => {
-    const s1 = { id: 's1', status: 'active', updatedAt: '2026-01-01T00:00:00Z' } as unknown as InterviewTrainingSession;
-    const s2 = { id: 's2', status: 'active', updatedAt: '2026-01-01T00:00:01Z' } as unknown as InterviewTrainingSession;
+    const s1 = createMockSession({ id: 's1', status: 'active', updatedAt: '2026-01-01T00:00:00Z' });
+    const s2 = createMockSession({ id: 's2', status: 'active', updatedAt: '2026-01-01T00:00:01Z' });
     await interviewTrainingDB.sessions.bulkPut([s1, s2]);
 
     const latest = await loadActiveInterviewTrainingSession();
@@ -112,7 +113,7 @@ describe('InterviewTrainingPersistence', () => {
   });
 
   it('saves stage evaluation', async () => {
-    const evaluation = { id: 'e1', score: 90 } as unknown as StageEvaluation;
+    const evaluation = createMockEvaluation({ id: 'e1', score: 90 });
     await Persistence.saveStageEvaluation(evaluation);
     const saved = await interviewTrainingDB.evaluations.get('e1');
     expect(saved?.score).toBe(90);
@@ -138,22 +139,27 @@ describe('InterviewTrainingPersistence', () => {
     const attemptId = 'a1';
     const evaluationId = 'e1';
 
-    const session = {
+    const session = createMockSession({
       id: sessionId,
       status: 'active',
       questions: [
-        {
+        createMockQuestion({
           id: questionId,
           stages: {
             thinking_structure: {
               status: 'submitted',
               latestAttemptId: attemptId,
+              attemptIds: [attemptId],
               updatedAt: 'old'
-            }
+            },
+            english_units: { status: 'not_started', attemptIds: [], updatedAt: 'old' },
+            full_english_answer: { status: 'not_started', attemptIds: [], updatedAt: 'old' },
+            vocabulary_upgrade: { status: 'not_started', attemptIds: [], updatedAt: 'old' },
+            final_practice: { status: 'not_started', attemptIds: [], updatedAt: 'old' }
           }
-        }
+        })
       ]
-    } as unknown as InterviewTrainingSession;
+    });
 
     const attempt = {
       id: attemptId,
@@ -162,11 +168,17 @@ describe('InterviewTrainingPersistence', () => {
       stage: 'thinking_structure'
     } as unknown as TrainingAttempt;
 
-    const evaluation = {
+    const evaluation = createMockEvaluation({
       id: evaluationId,
       attemptId,
-      suggestedNextAction: { action: 'proceed' }
-    } as unknown as StageEvaluation;
+      suggestedNextAction: createMockRecommendation({ 
+        questionId,
+        stage: 'thinking_structure',
+        priority: 'high',
+        reason: 'Test',
+        actionLabel: 'Proceed'
+      })
+    });
 
     await interviewTrainingDB.sessions.put(session);
     await interviewTrainingDB.attempts.put(attempt);
@@ -183,6 +195,7 @@ describe('InterviewTrainingPersistence', () => {
     const updatedStage = updatedSession?.questions[0].stages.thinking_structure;
     expect(updatedStage?.status).toBe('reviewed');
     expect(updatedStage?.latestEvaluationId).toBe(evaluationId);
+    expect(updatedSession?.questions[0].completedStages).toContain('thinking_structure');
     expect(updatedSession?.globalRecommendation).toEqual(evaluation.suggestedNextAction);
   });
 
@@ -192,22 +205,27 @@ describe('InterviewTrainingPersistence', () => {
     const attemptId = 'a1';
     const latestAttemptId = 'a2';
 
-    const session = {
+    const session = createMockSession({
       id: sessionId,
       status: 'active',
       questions: [
-        {
+        createMockQuestion({
           id: questionId,
           stages: {
             thinking_structure: {
               status: 'submitted',
               latestAttemptId: latestAttemptId,
+              attemptIds: [latestAttemptId],
               updatedAt: 'old'
-            }
+            },
+            english_units: { status: 'not_started', attemptIds: [], updatedAt: 'old' },
+            full_english_answer: { status: 'not_started', attemptIds: [], updatedAt: 'old' },
+            vocabulary_upgrade: { status: 'not_started', attemptIds: [], updatedAt: 'old' },
+            final_practice: { status: 'not_started', attemptIds: [], updatedAt: 'old' }
           }
-        }
+        })
       ]
-    } as unknown as InterviewTrainingSession;
+    });
 
     const attempt = {
       id: attemptId,
@@ -216,14 +234,20 @@ describe('InterviewTrainingPersistence', () => {
       stage: 'thinking_structure'
     } as unknown as TrainingAttempt;
 
-    const evaluation = {
+    const evaluation = createMockEvaluation({
       id: 'e1',
       sessionId,
       questionId,
       stage: 'thinking_structure',
       attemptId,
-      suggestedNextAction: { action: 'proceed' }
-    } as unknown as StageEvaluation;
+      suggestedNextAction: createMockRecommendation({ 
+        questionId,
+        stage: 'thinking_structure',
+        priority: 'high',
+        reason: 'Test',
+        actionLabel: 'Proceed'
+      })
+    });
 
     await interviewTrainingDB.sessions.put(session);
     await interviewTrainingDB.attempts.put(attempt);

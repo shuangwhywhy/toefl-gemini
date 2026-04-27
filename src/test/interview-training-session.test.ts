@@ -8,10 +8,10 @@ import {
   loadOrCreateTrainingSession,
   createNewTrainingSession
 } from '../services/interviewTrainingSessionFactory';
+import { createMockSession, createMockQuestion } from './fixtures/interviewFixtures';
 import { generateInterviewSession } from '../features/interview/interviewGeneration';
 import { PreloadPipeline } from '../services/preload/orchestrator';
 import * as Persistence from '../services/interviewTrainingPersistence';
-import type { InterviewTrainingSession } from '../features/interview/types';
 import type { InterviewSessionData } from '../features/interview/interviewGeneration';
 
 vi.mock('../features/interview/interviewGeneration', () => ({
@@ -64,7 +64,7 @@ describe('InterviewTrainingSessionFactory', () => {
   });
 
   it('creates session from generated interview data', () => {
-    const mockGenerated = {
+    const mockGenerated: InterviewSessionData = {
       topic: 'Test Topic',
       questions: [
         { role: 'personal_anchor', text: 'Q1', audioUrl: 'url1' },
@@ -73,7 +73,7 @@ describe('InterviewTrainingSessionFactory', () => {
         { role: 'future_or_tradeoff', text: 'Q4', audioUrl: 'url4' }
       ]
     };
-    const session = createSessionFromGeneratedInterview(mockGenerated as unknown as InterviewSessionData, {
+    const session = createSessionFromGeneratedInterview(mockGenerated, {
       source: 'fresh_generation',
       voice: 'en-US-Standard-A'
     });
@@ -86,23 +86,27 @@ describe('InterviewTrainingSessionFactory', () => {
   });
 
   it('throws error for invalid generated interview payload', () => {
-    expect(() => createSessionFromGeneratedInterview({} as unknown as InterviewSessionData, { source: 'fresh_generation', voice: 'v' }))
+    expect(() => createSessionFromGeneratedInterview({ topic: '', questions: [] } as InterviewSessionData, { source: 'fresh_generation', voice: 'v' }))
       .toThrow('Invalid generated interview payload.');
     
-    expect(() => createSessionFromGeneratedInterview({ topic: 'T', questions: [{ role: 'personal_anchor', text: '' }] } as unknown as InterviewSessionData, { source: 'fresh_generation', voice: 'v' }))
+    expect(() => createSessionFromGeneratedInterview({ topic: 'T', questions: [{ role: 'personal_anchor', text: '', audioUrl: '' }] } as InterviewSessionData, { source: 'fresh_generation', voice: 'v' }))
       .toThrow('Interview training session requires four durable questions.');
   });
 
   it('normalizes session by stripping blob URLs', () => {
-    const mockSession = {
-      questions: [{
+    const mockSession = createMockSession({
+      questions: [createMockQuestion({
         role: 'personal_anchor',
         promptAudio: { audioUrl: 'blob:123', status: 'ready', voice: 'v' },
-        promptUsage: { listenCount: 5 },
-        stages: {},
-        completedStages: []
-      }]
-      } as unknown as InterviewTrainingSession;
+        promptUsage: { 
+          textVisible: false,
+          textWasEverShown: false,
+          listenCount: 5,
+          playbackStartedCount: 0,
+          playbackCompletedCount: 0
+        }
+      })]
+    });
 
     const normalized = normalizeInterviewTrainingSession(mockSession, 'new-voice');
     expect(normalized.questions[0].promptAudio?.audioUrl).toBeUndefined();
@@ -113,16 +117,16 @@ describe('InterviewTrainingSessionFactory', () => {
   describe('loadOrCreateTrainingSession', () => {
     it('restores an active session if valid', async () => {
       // Use createSessionFromGeneratedInterview to get a valid session for schema validation
-      const mockGenerated = {
+      const mockGenerated: InterviewSessionData = {
         topic: 'Test Topic',
         questions: [
-          { role: 'personal_anchor', text: 'Q' },
-          { role: 'personal_choice', text: 'Q' },
-          { role: 'broad_opinion', text: 'Q' },
-          { role: 'future_or_tradeoff', text: 'Q' }
+          { role: 'personal_anchor', text: 'Q', audioUrl: 'url' },
+          { role: 'personal_choice', text: 'Q', audioUrl: 'url' },
+          { role: 'broad_opinion', text: 'Q', audioUrl: 'url' },
+          { role: 'future_or_tradeoff', text: 'Q', audioUrl: 'url' }
         ]
       };
-      const mockActive = createSessionFromGeneratedInterview(mockGenerated as unknown as InterviewSessionData, {
+      const mockActive = createSessionFromGeneratedInterview(mockGenerated, {
         source: 'fresh_generation',
         voice: 'en-US-Standard-A'
       });
@@ -137,9 +141,9 @@ describe('InterviewTrainingSessionFactory', () => {
 
     it('creates from preload cache if active session is missing', async () => {
       vi.mocked(Persistence.loadActiveInterviewTrainingSession).mockResolvedValue(null);
-      const mockCached = {
+      const mockCached: InterviewSessionData = {
         topic: 'Cached',
-        questions: Array(4).fill({ text: 'Q', role: 'R' })
+        questions: Array(4).fill({ text: 'Q', role: 'R', audioUrl: 'url' })
       };
       PreloadPipeline.cache.interview = mockCached;
 
@@ -163,12 +167,12 @@ describe('InterviewTrainingSessionFactory', () => {
     });
 
     it('handles corrupted active session by trying preload', async () => {
-      const mockCorrupted = {
+      const mockCorrupted = createMockSession({
         id: 's1',
         status: 'active',
         activeQuestionId: 'wrong-id',
-        questions: [{ id: 'q1' }]
-      } as unknown as InterviewTrainingSession;
+        questions: [createMockQuestion({ id: 'q1' })]
+      });
       vi.mocked(Persistence.loadActiveInterviewTrainingSession).mockResolvedValue(mockCorrupted);
 
       const result = await loadOrCreateTrainingSession({ voice: 'v', scopeId: 'sc1' });
@@ -178,7 +182,7 @@ describe('InterviewTrainingSessionFactory', () => {
 
   describe('createNewTrainingSession', () => {
     it('always creates new, prioritizing preload', async () => {
-      const mockCached = { topic: 'New Cached', questions: Array(4).fill({ text: 'Q', role: 'R' }) };
+      const mockCached: InterviewSessionData = { topic: 'New Cached', questions: Array(4).fill({ text: 'Q', role: 'R', audioUrl: 'url' }) };
       PreloadPipeline.cache.interview = mockCached;
 
       const result = await createNewTrainingSession({ voice: 'v', scopeId: 'sc1' });

@@ -4,7 +4,8 @@ import { evaluateInterviewTrainingStage } from '../services/interviewTrainingEva
 import { completeAttemptEvaluation } from '../services/interviewTrainingPersistence';
 import { callStructuredGemini } from '../services/callStructuredGemini';
 import { interviewTrainingDB } from '../services/interviewTrainingPersistence';
-import type { InterviewTrainingSession, InterviewTrainingQuestion, StageEvaluation, TrainingAttempt, StageEvaluationResult } from '../features/interview/types';
+import { StageEvaluationResult } from '../features/interview/types';
+import { createMockSession, createMockQuestion, createMockEvaluation, createMockAttempt } from './fixtures/interviewFixtures';
 import 'fake-indexeddb/auto';
 
 vi.mock('../services/callStructuredGemini', () => ({
@@ -18,8 +19,8 @@ vi.mock('../services/audio/multimodal', () => ({
 describe('InterviewTraining Logic Gaps', () => {
   describe('evaluateInterviewTrainingStage', () => {
     const mockInput = {
-      session: { id: 's1', topic: 'T' } as unknown as InterviewTrainingSession,
-      question: { id: 'q1', index: 0 } as unknown as InterviewTrainingQuestion,
+      session: createMockSession({ id: 's1', topic: 'T' }),
+      question: createMockQuestion({ id: 'q1', index: 0 }),
       stage: 'thinking_structure' as const,
       inputType: 'text' as const,
       transcript: 'Hello',
@@ -76,11 +77,11 @@ describe('InterviewTraining Logic Gaps', () => {
 
   describe('Persistence Gaps', () => {
     it('throws error in completeAttemptEvaluation if session is missing', async () => {
-      await interviewTrainingDB.attempts.put({ id: 'a1', sessionId: 'missing-s' } as unknown as TrainingAttempt);
+      await interviewTrainingDB.attempts.put(createMockAttempt({ id: 'a1', sessionId: 'missing-s' }));
       
       await expect(completeAttemptEvaluation({
         attemptId: 'a1',
-        evaluation: { id: 'e1' } as unknown as StageEvaluation
+        evaluation: createMockEvaluation({ id: 'e1' })
       })).rejects.toThrow('Session not found');
     });
   });

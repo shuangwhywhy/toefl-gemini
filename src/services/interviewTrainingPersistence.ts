@@ -200,6 +200,11 @@ export async function completeAttemptEvaluation(options: {
         status: 'reviewed',
         updatedAt
       };
+      
+      if (!question.completedStages.includes(attempt.stage)) {
+        question.completedStages = [...question.completedStages, attempt.stage];
+      }
+
       question.recommendation = options.evaluation.suggestedNextAction;
       question.updatedAt = updatedAt;
       session.globalRecommendation = options.evaluation.suggestedNextAction;

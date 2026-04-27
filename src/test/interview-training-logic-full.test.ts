@@ -201,10 +201,10 @@ describe('Interview Training Logic (Reducer & Selectors)', () => {
           ...mockSession.questions[0],
           stages: {
             ...mockSession.questions[0].stages,
-            thinking_structure: { status: 'not_started', latestEvaluationId: 'e1', updatedAt: '2024-01-01' }
+            thinking_structure: { status: 'not_started' as const, attemptIds: [], latestEvaluationId: 'e1', updatedAt: '2024-01-01' }
           }
         }]
-      } as unknown as InterviewTrainingSession;
+      } ;
       
       expect(getLatestEvaluationForActiveStage(sessionWithLatestId, [mockEvaluation])).toEqual(mockEvaluation);
 
@@ -214,10 +214,10 @@ describe('Interview Training Logic (Reducer & Selectors)', () => {
           ...mockSession.questions[0],
           stages: {
             ...mockSession.questions[0].stages,
-            thinking_structure: { status: 'not_started', latestAttemptId: 'a1', updatedAt: '2024-01-01' }
+            thinking_structure: { status: 'not_started' as const, attemptIds: [], latestAttemptId: 'a1', updatedAt: '2024-01-01' }
           }
         }]
-      } as unknown as InterviewTrainingSession;
+      } ;
       expect(getLatestEvaluationForActiveStage(sessionWithAttemptId, [mockEvaluation])).toEqual(mockEvaluation);
       
       expect(getLatestEvaluationForActiveStage(mockSession, [])).toBeNull();
