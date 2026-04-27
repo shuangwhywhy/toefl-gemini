@@ -46,7 +46,7 @@ describe('useGeminiTranscription', () => {
           prompt: 'test',
           supersedeKey: 'k1'
         });
-      } catch (e) {
+      } catch {
         // ignore
       }
     });

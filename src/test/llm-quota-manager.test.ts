@@ -16,7 +16,7 @@ const mockModel: modelCatalog.LLMModelDefinition = {
 vi.mock('../services/llm/modelCatalog', async () => {
   const actual = await vi.importActual('../services/llm/modelCatalog');
   return {
-    ...actual as any,
+    ...(actual as Record<string, unknown>),
     getCandidateModels: vi.fn()
   };
 });
@@ -31,7 +31,7 @@ describe('QuotaManager', () => {
   });
 
   it('allows request within hard limits and blocks when exceeded', () => {
-    let now = 1000;
+    const now = 1000;
     const histories = createEmptyQuotaHistories();
     const manager = new QuotaManager(mockClock(now), histories);
     const context = buildQuotaContext({ 
@@ -56,7 +56,7 @@ describe('QuotaManager', () => {
   });
 
   it('blocks by TPM (tokens per minute)', () => {
-    let now = 1000;
+    const now = 1000;
     const histories = createEmptyQuotaHistories();
     const manager = new QuotaManager(mockClock(now), histories);
     const context = buildQuotaContext({ 
@@ -75,7 +75,7 @@ describe('QuotaManager', () => {
   });
 
   it('applies soft penalties based on origin/usage ratio', () => {
-    let now = 1000;
+    const now = 1000;
     const histories = createEmptyQuotaHistories();
     const manager = new QuotaManager(mockClock(now), histories);
     

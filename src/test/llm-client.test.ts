@@ -24,8 +24,7 @@ vi.mock('../services/storage/db', () => {
 import { ScopeCancelledError, SupersededError } from '../services/llm/errors';
 import { createTestLLMClient } from '../services/llm/client';
 import {
-  getSchedulerPolicy,
-  resolveRoutePolicy
+    resolveRoutePolicy
 } from '../services/llm/config';
 import type { LLMOrigin, LLMRouteKey, LLMUsage } from '../services/llm/types';
 
@@ -130,10 +129,10 @@ describe('LLMClient scheduler', () => {
   });
 
   it('fills route concurrency and starts the next queued request when a slot frees', async () => {
-    const first = deferred<any>();
-    const second = deferred<any>();
-    const third = deferred<any>();
-    const fourth = deferred<any>();
+    const first = deferred<Record<string, unknown>>();
+    const second = deferred<Record<string, unknown>>();
+    const third = deferred<Record<string, unknown>>();
+    const fourth = deferred<Record<string, unknown>>();
     generateContentMock
       .mockImplementationOnce(() => first.promise)
       .mockImplementationOnce(() => second.promise)
@@ -162,9 +161,9 @@ describe('LLMClient scheduler', () => {
   });
 
   it('supersedes only the matching pending request and preserves unrelated queued work', async () => {
-    const activeA = deferred<any>();
-    const activeB = deferred<any>();
-    const replacement = deferred<any>();
+    const activeA = deferred<Record<string, unknown>>();
+    const activeB = deferred<Record<string, unknown>>();
+    const replacement = deferred<Record<string, unknown>>();
     generateContentMock
       .mockImplementationOnce(() => activeA.promise)
       .mockImplementationOnce(() => activeB.promise)
@@ -203,9 +202,9 @@ describe('LLMClient scheduler', () => {
   });
 
   it('cancels only pending work for the requested scope', async () => {
-    const activeA = deferred<any>();
-    const activeB = deferred<any>();
-    const survivingPending = deferred<any>();
+    const activeA = deferred<Record<string, unknown>>();
+    const activeB = deferred<Record<string, unknown>>();
+    const survivingPending = deferred<Record<string, unknown>>();
     generateContentMock
       .mockImplementationOnce(() => activeA.promise)
       .mockImplementationOnce(() => activeB.promise)
@@ -265,7 +264,7 @@ describe('LLMClient scheduler', () => {
   });
 
   it('keeps the worker slot occupied during busy retries so queued work cannot cut in', async () => {
-    const retrySuccess = deferred<any>();
+    const retrySuccess = deferred<Record<string, unknown>>();
     generateContentMock
       .mockRejectedValueOnce({ status: 429, message: 'rate limited' })
       .mockImplementationOnce(() => retrySuccess.promise)
@@ -303,8 +302,8 @@ describe('LLMClient scheduler', () => {
   });
 
   it('shares the TTS pool active budget across single and multi speaker routes', async () => {
-    const singleVoice = deferred<any>();
-    const multiVoice = deferred<any>();
+    const singleVoice = deferred<Record<string, unknown>>();
+    const multiVoice = deferred<Record<string, unknown>>();
     generateContentMock
       .mockImplementationOnce(() => singleVoice.promise)
       .mockImplementationOnce(() => multiVoice.promise);
@@ -368,9 +367,9 @@ describe('LLMClient scheduler', () => {
   });
 
   it('coalesces an identical pending request instead of queueing a second root request', async () => {
-    const activeA = deferred<any>();
-    const activeB = deferred<any>();
-    const sharedPending = deferred<any>();
+    const activeA = deferred<Record<string, unknown>>();
+    const activeB = deferred<Record<string, unknown>>();
+    const sharedPending = deferred<Record<string, unknown>>();
     generateContentMock
       .mockImplementationOnce(() => activeA.promise)
       .mockImplementationOnce(() => activeB.promise)
@@ -412,10 +411,10 @@ describe('LLMClient scheduler', () => {
   });
 
   it('starts a queued UI request ahead of lower-priority preload work', async () => {
-    const activeA = deferred<any>();
-    const activeB = deferred<any>();
-    const uiDeferred = deferred<any>();
-    const preloadDeferred = deferred<any>();
+    const activeA = deferred<Record<string, unknown>>();
+    const activeB = deferred<Record<string, unknown>>();
+    const uiDeferred = deferred<Record<string, unknown>>();
+    const preloadDeferred = deferred<Record<string, unknown>>();
     generateContentMock
       .mockImplementationOnce(() => activeA.promise)
       .mockImplementationOnce(() => activeB.promise)
@@ -529,7 +528,7 @@ describe('LLMClient scheduler', () => {
   });
 
   it('coalesces an identical in-flight request and preserves callback order', async () => {
-    const sharedInFlight = deferred<any>();
+    const sharedInFlight = deferred<Record<string, unknown>>();
     generateContentMock.mockImplementationOnce(() => sharedInFlight.promise);
 
     const client = createTestLLMClient(clock);
@@ -564,7 +563,7 @@ describe('LLMClient scheduler', () => {
   });
 
   it('detaches only the cancelled scope from an in-flight shared request', async () => {
-    const sharedInFlight = deferred<any>();
+    const sharedInFlight = deferred<Record<string, unknown>>();
     generateContentMock.mockImplementationOnce(() => sharedInFlight.promise);
 
     const client = createTestLLMClient(clock);

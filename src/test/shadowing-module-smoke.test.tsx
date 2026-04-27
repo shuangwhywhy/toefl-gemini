@@ -3,7 +3,6 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import { ShadowingModule } from '../features/shadowing/ShadowingModule';
 import { fetchGeminiText, fetchNeuralTTS } from '../services/llm/helpers';
-import { DBUtils } from '../services/storage/db';
 
 vi.mock('../services/llm/helpers', () => ({
   fetchGeminiText: vi.fn(),

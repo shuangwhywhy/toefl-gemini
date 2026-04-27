@@ -1,25 +1,25 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { act } from 'react';
 import ToeflTrainerApp from '../app/ToeflTrainerApp';
 
 // Mock sub-modules to avoid heavy dependencies
 vi.mock('../features/navigation/MenuModules', () => ({
-  DeviceSetupModule: ({ onComplete }: any) => <button onClick={onComplete}>Complete Setup</button>,
-  MainMenuModule: ({ onNavigate }: any) => (
+  DeviceSetupModule: ({ onComplete }: { onComplete: () => void }) => <button onClick={onComplete}>Complete Setup</button>,
+  MainMenuModule: ({ onNavigate }: { onNavigate: (v: string) => void }) => (
     <div>
       <button onClick={() => onNavigate('speaking_menu')}>Speaking</button>
       <button onClick={() => onNavigate('listening_menu')}>Listening</button>
     </div>
   ),
-  SpeakingMenuModule: ({ onNavigate, onBack }: any) => (
+  SpeakingMenuModule: ({ onNavigate, onBack }: { onNavigate: (v: string) => void, onBack: () => void }) => (
     <div>
       <button onClick={() => onNavigate('shadow')}>Shadow</button>
       <button onClick={() => onNavigate('interview')}>Interview</button>
       <button onClick={onBack}>Back</button>
     </div>
   ),
-  ListeningMenuModule: ({ onNavigate, onBack }: any) => (
+  ListeningMenuModule: ({ onNavigate, onBack }: { onNavigate: (v: string) => void, onBack: () => void }) => (
     <div>
       <button onClick={() => onNavigate('listening_practice')}>Practice</button>
       <button onClick={() => onNavigate('listening_dictation')}>Dictation</button>
@@ -29,16 +29,16 @@ vi.mock('../features/navigation/MenuModules', () => ({
 }));
 
 vi.mock('../features/listening/ListeningModules', () => ({
-  ListeningDictationModule: ({ onBack }: any) => <div data-testid="dictation"><button onClick={onBack}>Back</button></div>,
-  ListeningPracticeModule: ({ onBack }: any) => <div data-testid="practice"><button onClick={onBack}>Back</button></div>
+  ListeningDictationModule: ({ onBack }: { onBack: () => void }) => <div data-testid="dictation"><button onClick={onBack}>Back</button></div>,
+  ListeningPracticeModule: ({ onBack }: { onBack: () => void }) => <div data-testid="practice"><button onClick={onBack}>Back</button></div>
 }));
 
 vi.mock('../features/shadowing/ShadowingModule', () => ({
-  ShadowingModule: ({ onBack }: any) => <div data-testid="shadow"><button onClick={onBack}>Back</button></div>
+  ShadowingModule: ({ onBack }: { onBack: () => void }) => <div data-testid="shadow"><button onClick={onBack}>Back</button></div>
 }));
 
 vi.mock('../features/interview/InterviewModule', () => ({
-  InterviewModule: ({ onBack }: any) => <div data-testid="interview"><button onClick={onBack}>Back</button></div>
+  InterviewModule: ({ onBack }: { onBack: () => void }) => <div data-testid="interview"><button onClick={onBack}>Back</button></div>
 }));
 
 describe('ToeflTrainerApp Routing', () => {

@@ -1,7 +1,7 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { resolveRoutePolicy, resolveSharedPoolPolicy } from '../services/llm/config';
+import { describe, expect, it, vi } from 'vitest';
+import { resolveRoutePolicy } from '../services/llm/config';
 import { getLLMClient, createTestLLMClient } from '../services/llm/client';
-import { QuotaManager, createEmptyQuotaHistories, buildQuotaContext } from '../services/llm/quotaManager';
+import { QuotaManager, createEmptyQuotaHistories } from '../services/llm/quotaManager';
 import { DBUtils } from '../services/storage/db';
 
 vi.mock('../services/storage/db', () => ({
@@ -38,7 +38,7 @@ describe('LLM Coverage Deep', () => {
         tokenHistories: { 'some-key': { 'rule-2': [{ at: 'invalid', amount: 10 }] } }
       } as any);
       
-      const client = createTestLLMClient({ now: () => 1000 } as any);
+      createTestLLMClient({ now: () => 1000 } as any);
       await new Promise(r => setTimeout(r, 20));
       // No crash means success
     });

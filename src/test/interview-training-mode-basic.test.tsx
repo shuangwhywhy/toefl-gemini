@@ -1,9 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import { act } from 'react';
 import { InterviewTrainingMode } from '../features/interview/training/InterviewTrainingMode';
 import { loadOrCreateTrainingSession } from '../services/interviewTrainingSessionFactory';
-import { getAttemptsForSession, getEvaluationsForSession } from '../services/interviewTrainingPersistence';
 
 
 

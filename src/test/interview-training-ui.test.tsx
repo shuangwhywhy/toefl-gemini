@@ -78,7 +78,7 @@ function CurrentQuestionHarness({
 }
 
 class MockMediaRecorder {
-  static isTypeSupported = vi.fn((mimeType: string) => true);
+  static isTypeSupported = vi.fn(() => true);
   public state: RecordingState = 'inactive';
   public ondataavailable: ((event: { data: Blob }) => void) | null = null;
   public onstop: (() => void) | null = null;
@@ -323,13 +323,13 @@ describe('interview training voice-first UI', () => {
 
   it('renders QuestionSwitcher with active state and reviewed status', () => {
     const onSelect = vi.fn();
-    const session: any = {
+    const session = {
       activeQuestionId: 'q1',
       questions: [
         { id: 'q1', index: 0, question: 'Prompt 1', stages: { thinking_structure: { status: 'not_started' } } },
         { id: 'q2', index: 1, question: 'Prompt 2', stages: { thinking_structure: { status: 'reviewed' } } },
       ]
-    };
+    } as any;
 
     const { container } = render(<QuestionSwitcher session={session} onSelect={onSelect} />);
 

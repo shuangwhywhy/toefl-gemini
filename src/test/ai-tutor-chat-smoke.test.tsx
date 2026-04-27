@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { AITutorChat } from '../features/chat/AITutorChat';
-import { requestChatCompletion, requestTranscription } from '../services/llm/helpers';
+import { requestChatCompletion } from '../services/llm/helpers';
 import { DBUtils } from '../services/storage/db';
 
 vi.mock('../services/llm/helpers', () => ({

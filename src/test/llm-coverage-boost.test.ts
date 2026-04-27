@@ -5,11 +5,9 @@ import {
   requestTranscription,
   processDictationText,
   extractJSON,
-  shouldAttemptJsonFixer,
   fetchGeminiText
 } from '../services/llm/helpers';
 import { runBoundedGeneration, toRetryFailure, BoundedRetryError } from '../services/llm/retry';
-import { getLLMClient } from '../services/llm/client';
 import { JSONExtractionError, LLMFormatError } from '../services/llm/errors';
 
 const requestMock = vi.fn();
@@ -24,7 +22,7 @@ describe('LLM Coverage Boost', () => {
   beforeEach(() => {
     requestMock.mockReset();
     // Ensure requestMock calls the parser if provided in the arguments
-    requestMock.mockImplementation(async (args: any) => {
+    requestMock.mockImplementation(async (args: { parser?: (val: unknown) => Promise<unknown> }) => {
       if (args.parser) {
         // Default behavior for other tests
       }
@@ -132,7 +130,7 @@ describe('LLM Coverage Boost', () => {
       requestMock.mockResolvedValueOnce({
         candidates: [{ content: { parts: [{ text: '{"wrong": true}' }] } }]
       });
-      const validator = (p: any) => { if (!p.right) throw new Error('Bad'); };
+      const validator = (p: Record<string, unknown>) => { if (!p.right) throw new Error('Bad'); };
       await expect(fetchGeminiText<unknown>('prompt', 0, 100, null, null, validator, { scopeId: 'test' }))
         .rejects.toThrow(LLMFormatError);
     });

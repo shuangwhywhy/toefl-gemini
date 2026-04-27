@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   readTranscriptDetails,
   readTimeAnalysis,
-  readQuestionComprehensionAnalysis,
   readCrossQuestionConsistency
 } from '../features/interview/training/components/evaluationDetails';
 

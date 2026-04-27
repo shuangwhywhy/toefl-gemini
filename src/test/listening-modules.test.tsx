@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ListeningDictationModule, ListeningPracticeModule } from '../features/listening/ListeningModules';
 import { runBoundedGeneration } from '../services/llm/retry';
-import { fetchGeminiText, fetchNeuralTTS, fetchConversationTTS } from '../services/llm/helpers';
+import { fetchGeminiText } from '../services/llm/helpers';
 
 vi.mock('../services/llm/retry', () => ({
   runBoundedGeneration: vi.fn()

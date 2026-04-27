@@ -7,7 +7,7 @@ import { act } from '@testing-library/react';
 // Mock sub-components to avoid deep rendering issues
 vi.mock('../features/navigation/MenuModules', () => ({
   MainMenuModule: () => <div>Main Menu Mock</div>,
-  DeviceSetupModule: ({ onComplete }: any) => (
+  DeviceSetupModule: ({ onComplete }: { onComplete: () => void }) => (
     <div>
       Device Setup
       <button onClick={onComplete}>Complete Setup</button>

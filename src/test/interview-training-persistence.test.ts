@@ -8,8 +8,7 @@ const {
   saveInterviewTrainingSession,
   createInterviewTrainingSession,
   saveTrainingAttempt,
-  getAttemptsForStage,
-  cleanupOldAudioBlobs
+  getAttemptsForStage
 } = Persistence;
 
 describe('InterviewTrainingPersistence', () => {

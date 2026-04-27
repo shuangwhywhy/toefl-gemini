@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { MainMenuModule, SpeakingMenuModule, ListeningMenuModule } from '../features/navigation/MenuModules';
+import { MainMenuModule, SpeakingMenuModule } from '../features/navigation/MenuModules';
 
 describe('MenuModules', () => {
   it('renders MainMenuModule and triggers navigation', () => {
@@ -8,7 +8,6 @@ describe('MenuModules', () => {
     render(<MainMenuModule onNavigate={onNavigate} />);
     
     const listeningBtn = screen.getByText(/听力/i);
-    const speakingBtn = screen.getByText(/口语/i);
     
     expect(listeningBtn).toBeDefined();
     

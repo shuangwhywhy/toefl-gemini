@@ -9,7 +9,7 @@ import { PreloadPipeline } from '../services/preload/orchestrator';
 import { fetchGeminiText, fetchNeuralTTS, fetchConversationTTS } from '../services/llm/helpers';
 import { generateInterviewSession } from '../features/interview/interviewGeneration';
 
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { waitFor } from '@testing-library/react';
 
 vi.mock('../services/preload/orchestrator', () => ({
   PreloadPipeline: {

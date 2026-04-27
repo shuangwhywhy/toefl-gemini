@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { evaluateInterviewTrainingStage } from '../services/interviewTrainingEvaluation';
 import { completeAttemptEvaluation } from '../services/interviewTrainingPersistence';
 import { callStructuredGemini } from '../services/callStructuredGemini';
