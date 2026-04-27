@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ListeningDictationModule, ListeningPracticeModule } from '../features/listening/ListeningModules';
-import { runBoundedGeneration } from '../services/llm/retry';
+import { runBoundedGeneration, type BoundedGenerationResult } from '../services/llm/retry';
 import { fetchGeminiText } from '../services/llm/helpers';
 
 vi.mock('../services/llm/retry', () => ({
@@ -45,9 +45,10 @@ describe('ListeningModules', () => {
           topic: 'Biology',
           text: 'Hello World',
           tokens: [{ type: 'shown', word: 'Hello' }, { type: 'gap', word: 'World' }],
-          audioUrl: 'mock-audio'
-        }
-      } as any);
+        },
+        attempts: 1,
+        retries: 0
+      } as BoundedGenerationResult<unknown>);
 
       render(<ListeningDictationModule onBack={vi.fn()} />);
       
@@ -76,8 +77,10 @@ describe('ListeningModules', () => {
           transcript: 'Professor: Hi Student: Hello',
           truth: { who: 'P&S', problem: 'P', reason: 'R', solution: 'S', nextStep: 'N' },
           audioUrl: 'mock-audio'
-        }
-      } as any);
+        },
+        attempts: 1,
+        retries: 0
+      } as BoundedGenerationResult<unknown>);
 
       render(<ListeningPracticeModule onBack={vi.fn()} />);
       

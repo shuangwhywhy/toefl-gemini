@@ -7,7 +7,7 @@ import {
 } from '../features/shared/preloadTasks';
 import { PreloadPipeline } from '../services/preload/orchestrator';
 import { fetchGeminiText, fetchNeuralTTS, fetchConversationTTS } from '../services/llm/helpers';
-import { generateInterviewSession } from '../features/interview/interviewGeneration';
+import { generateInterviewSession, type InterviewSessionData } from '../features/interview/interviewGeneration';
 
 import { waitFor } from '@testing-library/react';
 
@@ -52,7 +52,7 @@ describe('PreloadTasks', () => {
   });
 
   it('skips shadow preload if already cached with same parameters', async () => {
-    PreloadPipeline.cache.shadow = { lengthLevel: 3, learningFocus: 'T', difficultyLevel: 5 } as any;
+    PreloadPipeline.cache.shadow = { lengthLevel: 3, learningFocus: 'T', difficultyLevel: 5, text: 'T', audioUrl: 'A', voice: 'V' };
     
     queueShadowPreload(3, 'T', 5, 'V');
     
@@ -60,7 +60,7 @@ describe('PreloadTasks', () => {
   });
 
   it('queues interview preload', async () => {
-    vi.mocked(generateInterviewSession).mockResolvedValue({ topic: 'Interview' } as any);
+    vi.mocked(generateInterviewSession).mockResolvedValue({ topic: 'Interview' } as unknown as InterviewSessionData);
 
     queueInterviewPreload('Voice');
 

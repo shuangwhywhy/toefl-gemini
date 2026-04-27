@@ -67,7 +67,7 @@ describe('AITutorChat', () => {
     // Mock FileReader
     const readAsDataURLSpy = vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementation(function(this: FileReader) {
       if (this.onloadend) {
-        this.onloadend({ target: { result: 'data:image/png;base64,mock' } } as any);
+        this.onloadend({ target: { result: 'data:image/png;base64,mock' } } as unknown as ProgressEvent<FileReader>);
       }
     });
 

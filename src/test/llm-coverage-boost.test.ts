@@ -13,7 +13,7 @@ import { JSONExtractionError, LLMFormatError } from '../services/llm/errors';
 const requestMock = vi.fn();
 vi.mock('../services/llm/client', () => ({
   getLLMClient: () => ({
-    request: requestMock,
+    request: requestMock as unknown as (args: { parser: (val: unknown) => Promise<unknown> }) => Promise<unknown>,
     cancelPendingByScope: vi.fn()
   })
 }));
@@ -22,7 +22,7 @@ describe('LLM Coverage Boost', () => {
   beforeEach(() => {
     requestMock.mockReset();
     // Ensure requestMock calls the parser if provided in the arguments
-    requestMock.mockImplementation(async (args: { parser?: (val: unknown) => Promise<unknown> }) => {
+    requestMock.mockImplementation(async (args: { parser: (val: unknown) => Promise<unknown> }) => {
       if (args.parser) {
         // Default behavior for other tests
       }

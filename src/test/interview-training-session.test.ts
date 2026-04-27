@@ -11,6 +11,8 @@ import {
 import { generateInterviewSession } from '../features/interview/interviewGeneration';
 import { PreloadPipeline } from '../services/preload/orchestrator';
 import * as Persistence from '../services/interviewTrainingPersistence';
+import type { InterviewTrainingSession } from '../features/interview/types';
+import type { InterviewSessionData } from '../features/interview/interviewGeneration';
 
 vi.mock('../features/interview/interviewGeneration', () => ({
   generateInterviewSession: vi.fn(),
@@ -71,7 +73,7 @@ describe('InterviewTrainingSessionFactory', () => {
         { role: 'future_or_tradeoff', text: 'Q4', audioUrl: 'url4' }
       ]
     };
-    const session = createSessionFromGeneratedInterview(mockGenerated as any, {
+    const session = createSessionFromGeneratedInterview(mockGenerated as unknown as InterviewSessionData, {
       source: 'fresh_generation',
       voice: 'en-US-Standard-A'
     });
@@ -84,10 +86,10 @@ describe('InterviewTrainingSessionFactory', () => {
   });
 
   it('throws error for invalid generated interview payload', () => {
-    expect(() => createSessionFromGeneratedInterview({} as any, { source: 'fresh_generation', voice: 'v' }))
+    expect(() => createSessionFromGeneratedInterview({} as unknown as InterviewSessionData, { source: 'fresh_generation', voice: 'v' }))
       .toThrow('Invalid generated interview payload.');
     
-    expect(() => createSessionFromGeneratedInterview({ topic: 'T', questions: [{ role: 'personal_anchor', text: '' }] } as any, { source: 'fresh_generation', voice: 'v' }))
+    expect(() => createSessionFromGeneratedInterview({ topic: 'T', questions: [{ role: 'personal_anchor', text: '' }] } as unknown as InterviewSessionData, { source: 'fresh_generation', voice: 'v' }))
       .toThrow('Interview training session requires four durable questions.');
   });
 
@@ -100,7 +102,7 @@ describe('InterviewTrainingSessionFactory', () => {
         stages: {},
         completedStages: []
       }]
-    } as any;
+      } as unknown as InterviewTrainingSession;
 
     const normalized = normalizeInterviewTrainingSession(mockSession, 'new-voice');
     expect(normalized.questions[0].promptAudio?.audioUrl).toBeUndefined();
@@ -120,7 +122,7 @@ describe('InterviewTrainingSessionFactory', () => {
           { role: 'future_or_tradeoff', text: 'Q' }
         ]
       };
-      const mockActive = createSessionFromGeneratedInterview(mockGenerated as any, {
+      const mockActive = createSessionFromGeneratedInterview(mockGenerated as unknown as InterviewSessionData, {
         source: 'fresh_generation',
         voice: 'en-US-Standard-A'
       });
@@ -151,9 +153,9 @@ describe('InterviewTrainingSessionFactory', () => {
       vi.mocked(Persistence.loadActiveInterviewTrainingSession).mockResolvedValue(null);
       const mockGenerated = {
         topic: 'Fresh',
-        questions: Array(4).fill({ text: 'Q', role: 'R' })
-      };
-      vi.mocked(generateInterviewSession).mockResolvedValue(mockGenerated as any);
+        questions: Array(4).fill({ text: 'Q', role: 'personal_anchor' })
+      } as InterviewSessionData;
+      vi.mocked(generateInterviewSession).mockResolvedValue(mockGenerated);
 
       const result = await loadOrCreateTrainingSession({ voice: 'v', scopeId: 'sc1' });
       expect(result.kind).toBe('created_fresh');
@@ -166,8 +168,8 @@ describe('InterviewTrainingSessionFactory', () => {
         status: 'active',
         activeQuestionId: 'wrong-id',
         questions: [{ id: 'q1' }]
-      };
-      vi.mocked(Persistence.loadActiveInterviewTrainingSession).mockResolvedValue(mockCorrupted as any);
+      } as unknown as InterviewTrainingSession;
+      vi.mocked(Persistence.loadActiveInterviewTrainingSession).mockResolvedValue(mockCorrupted);
 
       const result = await loadOrCreateTrainingSession({ voice: 'v', scopeId: 'sc1' });
       expect(result.kind).toBe('corrupted');
@@ -184,8 +186,8 @@ describe('InterviewTrainingSessionFactory', () => {
     });
 
     it('generates fresh if no cache', async () => {
-      const mockGenerated = { topic: 'New Fresh', questions: Array(4).fill({ text: 'Q', role: 'R' }) };
-      vi.mocked(generateInterviewSession).mockResolvedValue(mockGenerated as any);
+      const mockGenerated = { topic: 'New Fresh', questions: Array(4).fill({ text: 'Q', role: 'personal_anchor' }) } as InterviewSessionData;
+      vi.mocked(generateInterviewSession).mockResolvedValue(mockGenerated);
 
       const result = await createNewTrainingSession({ voice: 'v', scopeId: 'sc1' });
       expect(result.kind).toBe('created_fresh');

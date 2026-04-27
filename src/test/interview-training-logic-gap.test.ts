@@ -4,6 +4,7 @@ import { evaluateInterviewTrainingStage } from '../services/interviewTrainingEva
 import { completeAttemptEvaluation } from '../services/interviewTrainingPersistence';
 import { callStructuredGemini } from '../services/callStructuredGemini';
 import { interviewTrainingDB } from '../services/interviewTrainingPersistence';
+import type { InterviewTrainingSession, InterviewTrainingQuestion, StageEvaluation, TrainingAttempt, StageEvaluationResult } from '../features/interview/types';
 import 'fake-indexeddb/auto';
 
 vi.mock('../services/callStructuredGemini', () => ({
@@ -17,20 +18,20 @@ vi.mock('../services/audio/multimodal', () => ({
 describe('InterviewTraining Logic Gaps', () => {
   describe('evaluateInterviewTrainingStage', () => {
     const mockInput = {
-      session: { id: 's1', topic: 'T' },
-      question: { id: 'q1', index: 0 },
-      stage: 'thinking_structure',
-      inputType: 'text',
+      session: { id: 's1', topic: 'T' } as unknown as InterviewTrainingSession,
+      question: { id: 'q1', index: 0 } as unknown as InterviewTrainingQuestion,
+      stage: 'thinking_structure' as const,
+      inputType: 'text' as const,
       transcript: 'Hello',
       attemptId: 'a1',
       scopeId: 'sc1'
-    } as any;
+    };
 
     it('handles invalid recommendation stage names by defaulting to current stage', async () => {
       vi.mocked(callStructuredGemini).mockResolvedValue({
         score: 80,
         suggestedNextAction: { reason: 'R', actionLabel: 'A', stage: 'invalid_stage' }
-      } as any);
+      } as unknown as StageEvaluationResult);
 
       const result = await evaluateInterviewTrainingStage(mockInput);
       expect(result.suggestedNextAction?.stage).toBe('thinking_structure');
@@ -39,9 +40,9 @@ describe('InterviewTraining Logic Gaps', () => {
     it('throws error if audio mode produces no transcript', async () => {
       vi.mocked(callStructuredGemini).mockResolvedValue({
         score: 50
-      } as any);
+      } as unknown as StageEvaluationResult);
 
-      const audioInput = { ...mockInput, inputType: 'audio', audioBlob: new Blob() };
+      const audioInput = { ...mockInput, inputType: 'audio' as const, audioBlob: new Blob() };
       await expect(evaluateInterviewTrainingStage(audioInput))
         .rejects.toThrow('Evaluation failed to produce a transcript.');
     });
@@ -52,7 +53,7 @@ describe('InterviewTraining Logic Gaps', () => {
         displayTranscript: 'T',
         timeAnalysis: { durationSec: 10 },
         details: { custom: 1 }
-      } as any);
+      } as unknown as StageEvaluationResult);
 
       const result = await evaluateInterviewTrainingStage(mockInput);
       expect(result.details).toEqual({
@@ -66,7 +67,7 @@ describe('InterviewTraining Logic Gaps', () => {
       vi.mocked(callStructuredGemini).mockResolvedValue({
         score: 70,
         details: 'not-an-object'
-      } as any);
+      } as unknown as StageEvaluationResult);
 
       const result = await evaluateInterviewTrainingStage(mockInput);
       expect(result.details).toEqual({});
@@ -75,11 +76,11 @@ describe('InterviewTraining Logic Gaps', () => {
 
   describe('Persistence Gaps', () => {
     it('throws error in completeAttemptEvaluation if session is missing', async () => {
-      await interviewTrainingDB.attempts.put({ id: 'a1', sessionId: 'missing-s' } as any);
+      await interviewTrainingDB.attempts.put({ id: 'a1', sessionId: 'missing-s' } as unknown as TrainingAttempt);
       
       await expect(completeAttemptEvaluation({
         attemptId: 'a1',
-        evaluation: { id: 'e1' } as any
+        evaluation: { id: 'e1' } as unknown as StageEvaluation
       })).rejects.toThrow('Session not found');
     });
   });

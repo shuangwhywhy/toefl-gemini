@@ -9,13 +9,13 @@ const mockSpeechSynthesis = {
   pause: vi.fn(),
   resume: vi.fn(),
 };
-global.window.speechSynthesis = mockSpeechSynthesis as any;
+global.window.speechSynthesis = mockSpeechSynthesis as unknown as SpeechSynthesis;
 global.SpeechSynthesisUtterance = vi.fn().mockImplementation((text) => ({
   text,
   lang: 'en-US',
   rate: 1,
   onend: null,
-})) as any;
+})) as unknown as typeof SpeechSynthesisUtterance;
 
 describe('usePromptAudioPlayer behavior', () => {
   const defaultInput = {
@@ -80,7 +80,7 @@ describe('usePromptAudioPlayer behavior', () => {
       duration: 10,
       pause: vi.fn(),
     };
-    result.current.audioRef.current = mockAudio as any;
+    result.current.audioRef.current = mockAudio as unknown as HTMLAudioElement;
     
     // Simulate playing state
     act(() => {
@@ -113,7 +113,7 @@ describe('usePromptAudioPlayer behavior', () => {
   it('updates playbackRate when rate changes', () => {
     const { result } = renderHook(() => usePromptAudioPlayer(defaultInput));
     const mockAudio = { playbackRate: 1, pause: vi.fn() };
-    result.current.audioRef.current = mockAudio as any;
+    result.current.audioRef.current = mockAudio as unknown as HTMLAudioElement;
 
     act(() => {
       result.current.setRate(1.5);
@@ -130,7 +130,7 @@ describe('usePromptAudioPlayer behavior', () => {
       src: '',
       playbackRate: 1,
     };
-    result.current.audioRef.current = mockAudio as any;
+    result.current.audioRef.current = mockAudio as unknown as HTMLAudioElement;
 
     await act(async () => {
       await result.current.play();

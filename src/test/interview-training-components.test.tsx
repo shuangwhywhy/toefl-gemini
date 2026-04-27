@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { AIRecommendationCard } from '../features/interview/training/components/AIRecommendationCard';
 import { NewTrainingSetButton } from '../features/interview/training/components/NewTrainingSetButton';
+import type { TrainingRecommendation } from '../features/interview/types';
 
 describe('Interview Training Components', () => {
   describe('AIRecommendationCard', () => {
@@ -10,7 +11,7 @@ describe('Interview Training Components', () => {
       const recommendation = {
         stage: 'role_play',
         reason: 'Good progress'
-      } as any;
+      } as unknown as TrainingRecommendation;
 
       render(<AIRecommendationCard recommendation={recommendation} onGoToRecommendation={onGo} />);
       
@@ -24,7 +25,7 @@ describe('Interview Training Components', () => {
         stage: 'role_play',
         reason: 'Reason',
         actionLabel: 'Custom Action'
-      } as any;
+      } as unknown as TrainingRecommendation;
 
       render(<AIRecommendationCard recommendation={recommendation} onGoToRecommendation={vi.fn()} />);
       expect(screen.getByText('Custom Action')).toBeDefined();

@@ -77,7 +77,7 @@ describe('PromptAudioPanel', () => {
     usePromptAudioPlayerMock.mockReturnValueOnce({
       ...usePromptAudioPlayerMock(),
       isLoading: true
-    } as any);
+    } as unknown as ReturnType<typeof usePromptAudioPlayerMock>);
 
     const { container } = render(<PromptAudioPanel {...defaultProps} />);
     // RefreshCw icon with animate-spin class should be present
@@ -88,7 +88,7 @@ describe('PromptAudioPanel', () => {
     usePromptAudioPlayerMock.mockReturnValueOnce({
       ...usePromptAudioPlayerMock(),
       error: 'Test Error Message'
-    } as any);
+    } as unknown as ReturnType<typeof usePromptAudioPlayerMock>);
 
     render(<PromptAudioPanel {...defaultProps} />);
     expect(screen.getByText('Test Error Message')).toBeInTheDocument();
@@ -98,7 +98,7 @@ describe('PromptAudioPanel', () => {
     usePromptAudioPlayerMock.mockReturnValueOnce({
       ...usePromptAudioPlayerMock(),
       isPaused: true
-    } as any);
+    } as unknown as ReturnType<typeof usePromptAudioPlayerMock>);
 
     render(<PromptAudioPanel {...defaultProps} resumeButtonLabel="Resume Me" />);
     expect(screen.getByTitle('Resume Me')).toBeInTheDocument();
@@ -199,7 +199,7 @@ describe('PromptAudioPanel', () => {
       isPlaying: true,
       highlightStart: 0,
       highlightLength: 4
-    } as any);
+    } as unknown as ReturnType<typeof usePromptAudioPlayerMock>);
 
     const { container } = render(
       <PromptAudioPanel 
@@ -220,7 +220,7 @@ describe('PromptAudioPanel', () => {
       isPlaying: true,
       highlightStart: 0,
       highlightLength: 4
-    } as any);
+    } as unknown as ReturnType<typeof usePromptAudioPlayerMock>);
 
     const { container } = render(
       <PromptAudioPanel 
@@ -237,7 +237,7 @@ describe('PromptAudioPanel', () => {
     usePromptAudioPlayerMock.mockReturnValue({
       ...usePromptAudioPlayerMock(),
       stop: stopSpy
-    } as any);
+    } as unknown as ReturnType<typeof usePromptAudioPlayerMock>);
 
     const { rerender } = render(<PromptAudioPanel {...defaultProps} forceStop={false} />);
     expect(stopSpy).not.toHaveBeenCalled();

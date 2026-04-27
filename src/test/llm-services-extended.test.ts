@@ -45,7 +45,7 @@ describe('Extended LLM Services', () => {
 
     it('handles already parsed JSON objects from fetchGeminiText', async () => {
       const mockResult = { name: 'Direct', age: 30 };
-      vi.mocked(fetchGeminiText).mockResolvedValue(mockResult as any);
+      vi.mocked(fetchGeminiText).mockResolvedValue(mockResult as unknown as string);
 
       const schema = z.object({ name: z.string(), age: z.number() });
       const result = await callStructuredGemini({
@@ -70,7 +70,7 @@ describe('Extended LLM Services', () => {
 
     it('manages sessions and invalidates on unmount', () => {
       const cancelMock = vi.fn();
-      vi.mocked(getLLMClient).mockReturnValue({ cancelPendingByScope: cancelMock } as any);
+      vi.mocked(getLLMClient).mockReturnValue({ cancelPendingByScope: cancelMock } as unknown as ReturnType<typeof getLLMClient>);
 
       const { result, unmount } = renderHook(() => useRequestScope('test'));
       

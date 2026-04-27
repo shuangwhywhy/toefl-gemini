@@ -1,6 +1,7 @@
-import { describe, expect, it, beforeEach } from 'vitest';
 import 'fake-indexeddb/auto';
+import { describe, expect, it, beforeEach } from 'vitest';
 import * as Persistence from '../services/interviewTrainingPersistence';
+import type { InterviewTrainingSession, TrainingAttempt, StageEvaluation } from '../features/interview/types';
 const { 
   interviewTrainingDB, 
   clearInterviewTrainingData,
@@ -22,7 +23,7 @@ describe('InterviewTrainingPersistence', () => {
       status: 'active' as const,
       updatedAt: new Date().toISOString(),
       questions: []
-    } as any;
+    } as unknown as InterviewTrainingSession;
 
     await saveInterviewTrainingSession(mockSession);
     const loaded = await loadActiveInterviewTrainingSession();
@@ -30,8 +31,8 @@ describe('InterviewTrainingPersistence', () => {
   });
 
   it('archives existing active sessions when creating a new one', async () => {
-    const session1 = { id: 's1', status: 'active' as const, updatedAt: '2026-01-01T00:00:00Z' } as any;
-    const session2 = { id: 's2', status: 'active' as const, updatedAt: '2026-01-01T00:00:01Z' } as any;
+    const session1 = { id: 's1', status: 'active' as const, updatedAt: '2026-01-01T00:00:00Z' } as unknown as InterviewTrainingSession;
+    const session2 = { id: 's2', status: 'active' as const, updatedAt: '2026-01-01T00:00:01Z' } as unknown as InterviewTrainingSession;
 
     await interviewTrainingDB.sessions.put(session1);
     await createInterviewTrainingSession(session2);
@@ -48,10 +49,12 @@ describe('InterviewTrainingPersistence', () => {
       id: 'a1',
       sessionId: 's1',
       questionId: 'q1',
-      stage: 'evaluation',
+      stage: 'thinking_structure',
+      status: 'recorded',
+      inputType: 'audio',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
-    } as any;
+    } as unknown as TrainingAttempt;
     const blob = new Blob(['audio data'], { type: 'audio/webm' });
 
     const saved = await saveTrainingAttempt(attempt, blob);
@@ -63,9 +66,9 @@ describe('InterviewTrainingPersistence', () => {
   });
 
   it('gets attempts for a specific stage', async () => {
-    const a1 = { id: 'a1', sessionId: 's1', questionId: 'q1', stage: 'st1', createdAt: '2026-01-01T00:00:00Z' } as any;
-    const a2 = { id: 'a2', sessionId: 's1', questionId: 'q1', stage: 'st1', createdAt: '2026-01-01T00:00:01Z' } as any;
-    const a3 = { id: 'a3', sessionId: 's1', questionId: 'q2', stage: 'st1', createdAt: '2026-01-01T00:00:02Z' } as any;
+    const a1 = { id: 'a1', sessionId: 's1', questionId: 'q1', stage: 'st1', createdAt: '2026-01-01T00:00:00Z' } as unknown as TrainingAttempt;
+    const a2 = { id: 'a2', sessionId: 's1', questionId: 'q1', stage: 'st1', createdAt: '2026-01-01T00:00:01Z' } as unknown as TrainingAttempt;
+    const a3 = { id: 'a3', sessionId: 's1', questionId: 'q2', stage: 'st1', createdAt: '2026-01-01T00:00:02Z' } as unknown as TrainingAttempt;
 
     await interviewTrainingDB.attempts.bulkPut([a1, a2, a3]);
 
@@ -75,8 +78,8 @@ describe('InterviewTrainingPersistence', () => {
   });
 
   it('gets all attempts for a session', async () => {
-    const a1 = { id: 'a1', sessionId: 's1', createdAt: '2026-01-01T00:00:00Z' } as any;
-    const a2 = { id: 'a2', sessionId: 's1', createdAt: '2026-01-01T00:00:01Z' } as any;
+    const a1 = { id: 'a1', sessionId: 's1', createdAt: '2026-01-01T00:00:00Z' } as unknown as TrainingAttempt;
+    const a2 = { id: 'a2', sessionId: 's1', createdAt: '2026-01-01T00:00:01Z' } as unknown as TrainingAttempt;
     await interviewTrainingDB.attempts.bulkPut([a1, a2]);
 
     const results = await Persistence.getAttemptsForSession('s1');
@@ -85,8 +88,8 @@ describe('InterviewTrainingPersistence', () => {
   });
 
   it('gets latest evaluation and evaluations for session', async () => {
-    const e1 = { id: 'e1', attemptId: 'a1', sessionId: 's1', createdAt: '2026-01-01T00:00:00Z' } as any;
-    const e2 = { id: 'e2', attemptId: 'a1', sessionId: 's1', createdAt: '2026-01-01T00:00:01Z' } as any;
+    const e1 = { id: 'e1', attemptId: 'a1', sessionId: 's1', createdAt: '2026-01-01T00:00:00Z' } as unknown as StageEvaluation;
+    const e2 = { id: 'e2', attemptId: 'a1', sessionId: 's1', createdAt: '2026-01-01T00:00:01Z' } as unknown as StageEvaluation;
     await interviewTrainingDB.evaluations.bulkPut([e1, e2]);
 
     const latest = await Persistence.getLatestEvaluation('a1');
@@ -97,8 +100,8 @@ describe('InterviewTrainingPersistence', () => {
   });
 
   it('archives duplicate active sessions', async () => {
-    const s1 = { id: 's1', status: 'active', updatedAt: '2026-01-01T00:00:00Z' } as any;
-    const s2 = { id: 's2', status: 'active', updatedAt: '2026-01-01T00:00:01Z' } as any;
+    const s1 = { id: 's1', status: 'active', updatedAt: '2026-01-01T00:00:00Z' } as unknown as InterviewTrainingSession;
+    const s2 = { id: 's2', status: 'active', updatedAt: '2026-01-01T00:00:01Z' } as unknown as InterviewTrainingSession;
     await interviewTrainingDB.sessions.bulkPut([s1, s2]);
 
     const latest = await loadActiveInterviewTrainingSession();
@@ -109,7 +112,7 @@ describe('InterviewTrainingPersistence', () => {
   });
 
   it('saves stage evaluation', async () => {
-    const evaluation = { id: 'e1', score: 90 } as any;
+    const evaluation = { id: 'e1', score: 90 } as unknown as StageEvaluation;
     await Persistence.saveStageEvaluation(evaluation);
     const saved = await interviewTrainingDB.evaluations.get('e1');
     expect(saved?.score).toBe(90);
@@ -117,7 +120,14 @@ describe('InterviewTrainingPersistence', () => {
 
   it('retrieves audio blob by id', async () => {
     const blob = new Blob(['data']);
-    await interviewTrainingDB.audioBlobs.put({ id: 'b1', blob } as any);
+    await interviewTrainingDB.audioBlobs.put({
+      id: 'b1',
+      blob,
+      sessionId: 's1',
+      attemptId: 'a1',
+      createdAt: new Date().toISOString(),
+      mimeType: 'audio/webm'
+    });
     const result = await Persistence.getAudioBlob('b1');
     expect(result).toBeDefined();
   });
@@ -143,23 +153,20 @@ describe('InterviewTrainingPersistence', () => {
           }
         }
       ]
-    } as any;
+    } as unknown as InterviewTrainingSession;
 
     const attempt = {
       id: attemptId,
       sessionId,
       questionId,
       stage: 'thinking_structure'
-    } as any;
+    } as unknown as TrainingAttempt;
 
     const evaluation = {
       id: evaluationId,
-      sessionId,
-      questionId,
-      stage: 'thinking_structure',
       attemptId,
       suggestedNextAction: { action: 'proceed' }
-    } as any;
+    } as unknown as StageEvaluation;
 
     await interviewTrainingDB.sessions.put(session);
     await interviewTrainingDB.attempts.put(attempt);
@@ -200,14 +207,14 @@ describe('InterviewTrainingPersistence', () => {
           }
         }
       ]
-    } as any;
+    } as unknown as InterviewTrainingSession;
 
     const attempt = {
       id: attemptId,
       sessionId,
       questionId,
       stage: 'thinking_structure'
-    } as any;
+    } as unknown as TrainingAttempt;
 
     const evaluation = {
       id: 'e1',
@@ -216,7 +223,7 @@ describe('InterviewTrainingPersistence', () => {
       stage: 'thinking_structure',
       attemptId,
       suggestedNextAction: { action: 'proceed' }
-    } as any;
+    } as unknown as StageEvaluation;
 
     await interviewTrainingDB.sessions.put(session);
     await interviewTrainingDB.attempts.put(attempt);

@@ -3,7 +3,11 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest';
 import type {
   InterviewTrainingQuestion,
-  InterviewTrainingStage
+  InterviewTrainingStage,
+  InterviewTrainingSession,
+  TrainingAttempt,
+  StageEvaluation,
+  StageState
 } from '../features/interview/types';
 import { CurrentQuestionPanel } from '../features/interview/training/components/CurrentQuestionPanel';
 import { StageAttemptPanel } from '../features/interview/training/components/StageAttemptPanel';
@@ -252,12 +256,12 @@ describe('interview training voice-first UI', () => {
 
   it('renders StageSwitcher with correct status tones and allows selection', () => {
     const onSelect = vi.fn();
-    const stages: any = {
-      thinking_structure: { status: 'in_progress' },
-      english_units: { status: 'submitted' },
-      full_english_answer: { status: 'reviewed' },
-      vocabulary_upgrade: { status: 'not_started' },
-      final_practice: { status: 'not_started' }
+    const stages: Record<InterviewTrainingStage, StageState> = {
+      thinking_structure: { status: 'in_progress', attemptIds: [], updatedAt: now },
+      english_units: { status: 'submitted', attemptIds: [], updatedAt: now },
+      full_english_answer: { status: 'reviewed', attemptIds: [], updatedAt: now },
+      vocabulary_upgrade: { status: 'not_started', attemptIds: [], updatedAt: now },
+      final_practice: { status: 'not_started', attemptIds: [], updatedAt: now }
     };
 
     const { container } = render(
@@ -288,14 +292,14 @@ describe('interview training voice-first UI', () => {
 
   it('renders AttemptHistory with limited items and retry button', () => {
     const onRetryAttempt = vi.fn();
-    const attempts: any[] = [
-      { id: '1', stage: 'thinking_structure', status: 'failed', transcript: 'Fail 1', createdAt: now },
-      { id: '2', stage: 'english_units', status: 'evaluated', transcript: 'Success 2', createdAt: now },
-      { id: '3', stage: 'full_english_answer', status: 'evaluated', transcript: 'Success 3', createdAt: now },
-      { id: '4', stage: 'vocabulary_upgrade', status: 'evaluated', transcript: 'Success 4', createdAt: now },
-      { id: '5', stage: 'final_practice', status: 'evaluated', transcript: 'Success 5', createdAt: now },
-      { id: '6', stage: 'final_practice', status: 'evaluated', transcript: 'Success 6', createdAt: now },
-      { id: '7', stage: 'final_practice', status: 'evaluated', transcript: 'Success 7', createdAt: now },
+    const attempts: TrainingAttempt[] = [
+      { id: '1', sessionId: 's1', questionId: 'q1', stage: 'thinking_structure', status: 'failed', transcript: 'Fail 1', durationSec: 10, inputType: 'text', createdAt: now, updatedAt: now },
+      { id: '2', sessionId: 's1', questionId: 'q1', stage: 'english_units', status: 'evaluated', transcript: 'Success 2', durationSec: 10, inputType: 'text', createdAt: now, updatedAt: now },
+      { id: '3', sessionId: 's1', questionId: 'q1', stage: 'full_english_answer', status: 'evaluated', transcript: 'Success 3', durationSec: 10, inputType: 'text', createdAt: now, updatedAt: now },
+      { id: '4', sessionId: 's1', questionId: 'q1', stage: 'vocabulary_upgrade', status: 'evaluated', transcript: 'Success 4', durationSec: 10, inputType: 'text', createdAt: now, updatedAt: now },
+      { id: '5', sessionId: 's1', questionId: 'q1', stage: 'final_practice', status: 'evaluated', transcript: 'Success 5', durationSec: 10, inputType: 'text', createdAt: now, updatedAt: now },
+      { id: '6', sessionId: 's1', questionId: 'q1', stage: 'final_practice', status: 'evaluated', transcript: 'Success 6', durationSec: 10, inputType: 'text', createdAt: now, updatedAt: now },
+      { id: '7', sessionId: 's1', questionId: 'q1', stage: 'final_practice', status: 'evaluated', transcript: 'Success 7', durationSec: 10, inputType: 'text', createdAt: now, updatedAt: now },
     ];
 
     render(
@@ -314,8 +318,8 @@ describe('interview training voice-first UI', () => {
   });
 
   it('shows Audio answer label when transcript is missing in AttemptHistory', () => {
-    const attempts: any[] = [
-      { id: '1', stage: 'thinking_structure', status: 'evaluated', inputType: 'audio', durationSec: 45, createdAt: now },
+    const attempts: TrainingAttempt[] = [
+      { id: '1', sessionId: 's1', questionId: 'q1', stage: 'thinking_structure', status: 'evaluated', inputType: 'audio', durationSec: 45, createdAt: now, updatedAt: now },
     ];
     render(<AttemptHistory attempts={attempts} />);
     expect(screen.getByText(/Audio answer · 45s/i)).toBeInTheDocument();
@@ -324,12 +328,22 @@ describe('interview training voice-first UI', () => {
   it('renders QuestionSwitcher with active state and reviewed status', () => {
     const onSelect = vi.fn();
     const session = {
+      id: 's1',
+      version: 1,
+      topic: 'Topic',
       activeQuestionId: 'q1',
+      activeStage: 'thinking_structure',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
       questions: [
-        { id: 'q1', index: 0, question: 'Prompt 1', stages: { thinking_structure: { status: 'not_started' } } },
-        { id: 'q2', index: 1, question: 'Prompt 2', stages: { thinking_structure: { status: 'reviewed' } } },
+        createQuestion({ id: 'q1', index: 0, question: 'Prompt 1' }),
+        createQuestion({ id: 'q2', index: 1, question: 'Prompt 2', stages: { 
+          ...createQuestion().stages, 
+          thinking_structure: { status: 'reviewed', attemptIds: [], updatedAt: now } 
+        } }),
       ]
-    } as any;
+    } as unknown as InterviewTrainingSession;
 
     const { container } = render(<QuestionSwitcher session={session} onSelect={onSelect} />);
 
@@ -349,13 +363,17 @@ describe('interview training voice-first UI', () => {
 
   it('renders LatestFeedbackPanel with score and feedback', () => {
     const onGoToRecommendation = vi.fn();
-    const evaluation: any = {
+    const evaluation: StageEvaluation = {
       id: 'eval1',
+      sessionId: 's1',
+      questionId: 'q1',
       stage: 'thinking_structure',
+      attemptId: 'a1',
       score: 85,
-      mainIssue: 'Test Issue',
       feedbackSummary: 'Test Summary',
-      details: {}
+      mainIssue: 'Test Issue',
+      details: {},
+      createdAt: now
     };
 
     render(

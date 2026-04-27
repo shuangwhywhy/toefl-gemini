@@ -11,36 +11,66 @@ import type { InterviewTrainingSession, TrainingAttempt, StageEvaluation } from 
 describe('Interview Training Logic (Reducer & Selectors)', () => {
   const mockSession: InterviewTrainingSession = {
     id: 's1',
+    version: 1,
+    topic: 'Test Topic',
     activeQuestionId: 'q1',
     activeStage: 'thinking_structure',
     questions: [
       {
         id: 'q1',
-        title: 'Q1',
+        index: 0,
+        question: 'Question 1',
+        role: 'personal_anchor',
         stages: {
-          thinking_structure: { status: 'idle' },
-          role_play: { status: 'idle' }
-        }
+          thinking_structure: { status: 'not_started', attemptIds: [], updatedAt: '2024-01-01' },
+          english_units: { status: 'not_started', attemptIds: [], updatedAt: '2024-01-01' },
+          full_english_answer: { status: 'not_started', attemptIds: [], updatedAt: '2024-01-01' },
+          vocabulary_upgrade: { status: 'not_started', attemptIds: [], updatedAt: '2024-01-01' },
+          final_practice: { status: 'not_started', attemptIds: [], updatedAt: '2024-01-01' }
+        },
+        promptUsage: {
+          textVisible: false,
+          textWasEverShown: false,
+          listenCount: 0,
+          playbackStartedCount: 0,
+          playbackCompletedCount: 0
+        },
+        currentStage: 'thinking_structure',
+        completedStages: [],
+        createdAt: '2024-01-01',
+        updatedAt: '2024-01-01'
       }
     ],
     status: 'active',
     createdAt: '2024-01-01',
     updatedAt: '2024-01-01'
-  } as any;
+  };
 
   const mockAttempt: TrainingAttempt = {
     id: 'a1',
     sessionId: 's1',
     questionId: 'q1',
     stage: 'thinking_structure',
-    createdAt: '2024-01-01T12:00:00Z'
-  } as any;
+    status: 'recorded',
+    inputType: 'text',
+    transcript: 'Test transcript',
+    durationSec: 10,
+    createdAt: '2024-01-01T12:00:00Z',
+    updatedAt: '2024-01-01T12:00:00Z'
+  };
 
   const mockEvaluation: StageEvaluation = {
     id: 'e1',
+    sessionId: 's1',
+    questionId: 'q1',
+    stage: 'thinking_structure',
     attemptId: 'a1',
-    score: 80
-  } as any;
+    score: 80,
+    feedbackSummary: 'Good',
+    mainIssue: 'None',
+    details: {},
+    createdAt: '2024-01-01T12:05:00Z'
+  };
 
   describe('Reducer', () => {
     it('handles SESSION_LOADED', () => {
@@ -88,7 +118,7 @@ describe('Interview Training Logic (Reducer & Selectors)', () => {
 
     it('handles ATTEMPT_UPDATED', () => {
       const initialState = { ...initialInterviewTrainingState, attempts: [mockAttempt] };
-      const updated = { ...mockAttempt, status: 'evaluated' } as any;
+      const updated = { ...mockAttempt, status: 'evaluated' as const };
       const state = interviewTrainingReducer(initialState, {
         type: 'ATTEMPT_UPDATED',
         attempt: updated
@@ -98,7 +128,7 @@ describe('Interview Training Logic (Reducer & Selectors)', () => {
 
     it('handles EVALUATION_ADDED', () => {
       const initialState = { ...initialInterviewTrainingState, attempts: [mockAttempt] };
-      const updatedAttempt = { ...mockAttempt, status: 'evaluated' } as any;
+      const updatedAttempt = { ...mockAttempt, status: 'evaluated' as const };
       const state = interviewTrainingReducer(initialState, {
         type: 'EVALUATION_ADDED',
         session: mockSession,
@@ -128,7 +158,7 @@ describe('Interview Training Logic (Reducer & Selectors)', () => {
     });
 
     it('returns state for unknown action', () => {
-      const state = interviewTrainingReducer(initialInterviewTrainingState, { type: 'UNKNOWN' } as any);
+      const state = interviewTrainingReducer(initialInterviewTrainingState, { type: 'UNKNOWN' } as unknown as { type: 'ERROR_SET', error: string });
       expect(state).toBe(initialInterviewTrainingState);
     });
   });
@@ -147,7 +177,7 @@ describe('Interview Training Logic (Reducer & Selectors)', () => {
 
     it('getStageState works', () => {
       expect(getStageState(null, null, null)).toBeNull();
-      expect(getStageState(mockSession, 'q1', 'thinking_structure')).toEqual({ status: 'idle' });
+      expect(getStageState(mockSession, 'q1', 'thinking_structure')).toEqual({ status: 'not_started', attemptIds: [], updatedAt: '2024-01-01' });
       expect(getStageState(mockSession, 'q2', 'thinking_structure')).toBeNull();
     });
 
@@ -156,7 +186,7 @@ describe('Interview Training Logic (Reducer & Selectors)', () => {
       const attempts = [
         { ...mockAttempt, id: 'a1', createdAt: '2024-01-01' },
         { ...mockAttempt, id: 'a2', createdAt: '2024-01-02' }
-      ] as any;
+      ] as TrainingAttempt[];
       const result = getAttemptsForActiveStage(mockSession, attempts);
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe('a2'); // Sorted desc
@@ -165,27 +195,29 @@ describe('Interview Training Logic (Reducer & Selectors)', () => {
     it('getLatestEvaluationForActiveStage works', () => {
       expect(getLatestEvaluationForActiveStage(null, [])).toBeNull();
       
-      const sessionWithLatestId: InterviewTrainingSession = {
+      const sessionWithLatestId = {
         ...mockSession,
         questions: [{
           ...mockSession.questions[0],
           stages: {
-            thinking_structure: { status: 'idle', latestEvaluationId: 'e1' }
-          } as any
+            ...mockSession.questions[0].stages,
+            thinking_structure: { status: 'not_started', latestEvaluationId: 'e1', updatedAt: '2024-01-01' }
+          }
         }]
-      } as any;
+      } as unknown as InterviewTrainingSession;
       
       expect(getLatestEvaluationForActiveStage(sessionWithLatestId, [mockEvaluation])).toEqual(mockEvaluation);
 
-      const sessionWithAttemptId: InterviewTrainingSession = {
+      const sessionWithAttemptId = {
         ...mockSession,
         questions: [{
           ...mockSession.questions[0],
           stages: {
-            thinking_structure: { status: 'idle', latestAttemptId: 'a1' }
-          } as any
+            ...mockSession.questions[0].stages,
+            thinking_structure: { status: 'not_started', latestAttemptId: 'a1', updatedAt: '2024-01-01' }
+          }
         }]
-      } as any;
+      } as unknown as InterviewTrainingSession;
       expect(getLatestEvaluationForActiveStage(sessionWithAttemptId, [mockEvaluation])).toEqual(mockEvaluation);
       
       expect(getLatestEvaluationForActiveStage(mockSession, [])).toBeNull();

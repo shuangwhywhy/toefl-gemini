@@ -2,8 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { InterviewTrainingMode } from '../features/interview/training/InterviewTrainingMode';
 import { loadOrCreateTrainingSession } from '../services/interviewTrainingSessionFactory';
-
-
+import type { InterviewTrainingSession } from '../features/interview/types';
 
 vi.mock('../services/interviewTrainingSessionFactory', () => ({
   loadOrCreateTrainingSession: vi.fn(),
@@ -46,22 +45,22 @@ describe('InterviewTrainingMode', () => {
         question: 'What is your name?',
         currentStage: 'thinking_structure',
         stages: {
-          thinking_structure: { status: 'idle' },
-          english_units: { status: 'not_started' },
-          full_english_answer: { status: 'not_started' },
-          vocabulary_upgrade: { status: 'not_started' },
-          final_practice: { status: 'not_started' }
+          thinking_structure: { status: 'idle', updatedAt: 'now' },
+          english_units: { status: 'not_started', updatedAt: 'now' },
+          full_english_answer: { status: 'not_started', updatedAt: 'now' },
+          vocabulary_upgrade: { status: 'not_started', updatedAt: 'now' },
+          final_practice: { status: 'not_started', updatedAt: 'now' }
         },
         promptUsage: { textVisible: true }
       }
     ],
     status: 'active'
-  };
+  } as unknown as InterviewTrainingSession;
 
   it('renders loading state then success state', async () => {
     vi.mocked(loadOrCreateTrainingSession).mockResolvedValue({
       kind: 'created_fresh',
-      session: mockSession as any
+      session: mockSession
     });
 
     render(<InterviewTrainingMode onBack={vi.fn()} />);
@@ -77,7 +76,7 @@ describe('InterviewTrainingMode', () => {
     vi.mocked(loadOrCreateTrainingSession).mockResolvedValue({
       kind: 'corrupted',
       error: null,
-      session: mockSession as any
+      session: mockSession
     });
 
     render(<InterviewTrainingMode onBack={vi.fn()} />);

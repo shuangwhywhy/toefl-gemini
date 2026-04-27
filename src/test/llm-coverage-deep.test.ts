@@ -3,6 +3,7 @@ import { resolveRoutePolicy } from '../services/llm/config';
 import { getLLMClient, createTestLLMClient } from '../services/llm/client';
 import { QuotaManager, createEmptyQuotaHistories } from '../services/llm/quotaManager';
 import { DBUtils } from '../services/storage/db';
+import type { LLMRouteService } from '../services/llm/types';
 
 vi.mock('../services/storage/db', () => ({
   DBUtils: {
@@ -14,7 +15,7 @@ vi.mock('../services/storage/db', () => ({
 describe('LLM Coverage Deep', () => {
   describe('config.ts edge cases', () => {
     it('throws for unsupported route service', () => {
-      expect(() => resolveRoutePolicy({ platform: 'test', service: 'unknown' as any }))
+      expect(() => resolveRoutePolicy({ platform: 'test', service: 'unknown' as LLMRouteService }))
         .toThrow(/Unsupported LLM route service/);
     });
   });
@@ -36,9 +37,13 @@ describe('LLM Coverage Deep', () => {
       vi.mocked(DBUtils.get).mockResolvedValue({
         histories: { 'some-key': { 'rule-1': [NaN, Infinity, 'invalid'] } },
         tokenHistories: { 'some-key': { 'rule-2': [{ at: 'invalid', amount: 10 }] } }
-      } as any);
+      } as unknown as Record<string, unknown>);
       
-      createTestLLMClient({ now: () => 1000 } as any);
+      createTestLLMClient({ 
+        now: () => 1000, 
+        setTimeout: (fn: () => void) => { fn(); return 0; }, 
+        clearTimeout: () => {} 
+      });
       await new Promise(r => setTimeout(r, 20));
       // No crash means success
     });

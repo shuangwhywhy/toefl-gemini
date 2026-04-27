@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { MainMenuModule, SpeakingMenuModule } from '../features/navigation/MenuModules';
+import { MainMenuModule, SpeakingMenuModule, type PreloadStatus } from '../features/navigation/MenuModules';
 
 describe('MenuModules', () => {
   it('renders MainMenuModule and triggers navigation', () => {
@@ -18,7 +18,16 @@ describe('MenuModules', () => {
   it('renders SpeakingMenuModule and triggers navigation', () => {
     const onNavigate = vi.fn();
     const onBack = vi.fn();
-    const preloadStatus = {} as any;
+    const preloadStatus: PreloadStatus = {
+      shadow: false,
+      interview: false,
+      listening: false,
+      dictation: false,
+      shadowError: false,
+      interviewError: false,
+      listeningError: false,
+      dictationError: false
+    };
     render(<SpeakingMenuModule onNavigate={onNavigate} onBack={onBack} preloadStatus={preloadStatus} />);
     
     const shadowBtn = screen.getByText(/Repeat/i);

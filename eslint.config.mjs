@@ -44,10 +44,4 @@ export default tseslint.config(
       'no-constant-condition': 'off',
     },
   },
-  {
-    files: ['src/test/**/*.{ts,tsx}'],
-    rules: {
-      '@typescript-eslint/no-explicit-any': 'off',
-    },
-  },
 )

@@ -128,7 +128,7 @@ describe('ShadowingModule', () => {
     
     // Trigger data available
     if (mockRecorder.ondataavailable) {
-      mockRecorder.ondataavailable({ data: new Blob(['audio-data'], { type: 'audio/webm' }) } as any);
+      mockRecorder.ondataavailable({ data: new Blob(['audio-data'], { type: 'audio/webm' }) } as unknown as BlobEvent);
     }
     
     // Trigger onstop
